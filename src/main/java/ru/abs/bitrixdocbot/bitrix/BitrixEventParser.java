@@ -137,9 +137,11 @@ public class BitrixEventParser {
                 long rawSize = firstLong(node, "size", "fileSize", "SIZE");
                 addAttachment(unique, id, name, rawSize > 0 ? rawSize : null);
             }
-            node.values()
-                .filter(JsonNode::isContainer)
-                .forEach(child -> collectCandidates(child, unique));
+            for (JsonNode child : node.values()) {
+                if (child.isContainer()) {
+                    collectCandidates(child, unique);
+                }
+            }
         }
     }
 
