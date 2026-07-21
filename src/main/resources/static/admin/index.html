@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitrix Document AI Bot</title>
+    <link rel="stylesheet" href="/admin/style.css">
+</head>
+<body>
+<header class="topbar">
+    <div>
+        <div class="eyebrow">BITRIX24 · DOCUMENT AI</div>
+        <h1>Настройки бота анализа документов</h1>
+        <p>Две независимые модели, Bitrix24 Chatbots 2.0 и редактируемые системные промпты.</p>
+    </div>
+    <div id="globalStatus" class="status-pill">Загрузка…</div>
+</header>
+
+<main class="layout">
+    <section class="card full">
+        <div class="card-title">
+            <div>
+                <span class="step">01</span>
+                <h2>Bitrix24</h2>
+            </div>
+            <div class="button-row">
+                <button type="button" class="secondary" id="checkBitrix">Проверить бота</button>
+                <button type="button" id="registerBitrix">Создать / получить бота</button>
+            </div>
+        </div>
+        <div class="grid three">
+            <label class="span-two">Входящий webhook с правом imbot
+                <input id="bitrixWebhook" type="url" placeholder="https://portal.bitrix24.ru/rest/1/token/">
+            </label>
+            <label>ID бота
+                <input id="bitrixBotId" type="text" readonly placeholder="Появится после регистрации">
+            </label>
+            <label>Код бота
+                <input id="bitrixBotCode" type="text">
+            </label>
+            <label>Название бота
+                <input id="bitrixBotName" type="text">
+            </label>
+            <label>Должность / описание
+                <input id="bitrixWorkPosition" type="text">
+            </label>
+        </div>
+        <p class="hint">Используется режим fetch: внешний callback URL для событий не требуется.</p>
+    </section>
+
+    <section class="card model-card">
+        <div class="card-title">
+            <div><span class="step">02</span><h2>Простая модель</h2></div>
+            <button type="button" class="secondary test-model" data-target="simple">Проверить API</button>
+        </div>
+        <p class="muted">Определяет, относится ли запрос к анализу документов.</p>
+        <div class="grid">
+            <label>Провайдер
+                <select id="simpleProvider">
+                    <option value="OPENAI">OpenAI API</option>
+                    <option value="GOOGLE">Google API</option>
+                </select>
+            </label>
+            <label>Endpoint
+                <input id="simpleEndpoint" type="url" placeholder="Полный URL API">
+            </label>
+            <label>Model ID
+                <input id="simpleModelId" type="text" placeholder="ID модели">
+            </label>
+            <label>API key
+                <input id="simpleApiKey" type="password" autocomplete="new-password" placeholder="Введите новый ключ">
+                <small id="simpleKeyState"></small>
+            </label>
+        </div>
+    </section>
+
+    <section class="card model-card">
+        <div class="card-title">
+            <div><span class="step">03</span><h2>Основная модель</h2></div>
+            <button type="button" class="secondary test-model" data-target="complex">Проверить API</button>
+        </div>
+        <p class="muted">Получает извлечённый текст PDF/DOC/DOCX и формирует итоговый анализ.</p>
+        <div class="grid">
+            <label>Провайдер
+                <select id="complexProvider">
+                    <option value="OPENAI">OpenAI API</option>
+                    <option value="GOOGLE">Google API</option>
+                </select>
+            </label>
+            <label>Endpoint
+                <input id="complexEndpoint" type="url" placeholder="Полный URL API">
+            </label>
+            <label>Model ID
+                <input id="complexModelId" type="text" placeholder="ID модели">
+            </label>
+            <label>API key
+                <input id="complexApiKey" type="password" autocomplete="new-password" placeholder="Введите новый ключ">
+                <small id="complexKeyState"></small>
+            </label>
+        </div>
+    </section>
+
+    <section class="card full">
+        <div class="card-title"><div><span class="step">04</span><h2>Промпты</h2></div></div>
+        <div class="prompt-grid">
+            <label>Промпт определения релевантности
+                <textarea id="relevancePrompt" rows="14"></textarea>
+            </label>
+            <label>Основной системный промпт анализа
+                <textarea id="analysisPrompt" rows="14"></textarea>
+            </label>
+        </div>
+    </section>
+
+    <section class="card full">
+        <div class="card-title"><div><span class="step">05</span><h2>Ответы и ограничения</h2></div></div>
+        <div class="grid three">
+            <label>Ответ на нерелевантный запрос
+                <textarea id="irrelevantReply" rows="4"></textarea>
+            </label>
+            <label>Сообщение о начале анализа
+                <textarea id="processingReply" rows="4"></textarea>
+            </label>
+            <label>Сообщение при ошибке
+                <textarea id="errorReply" rows="4"></textarea>
+            </label>
+            <label>Максимум файлов
+                <input id="maxFileCount" type="number" min="1" max="50">
+            </label>
+            <label>Максимум МБ на файл
+                <input id="maxFileSizeMb" type="number" min="1">
+            </label>
+            <label>Символов текста на файл
+                <input id="maxCharsPerFile" type="number" min="1000">
+            </label>
+            <label>Символов во всём комплекте
+                <input id="maxTotalChars" type="number" min="1000">
+            </label>
+            <label>Размер сообщения Bitrix
+                <input id="chunkSize" type="number" min="500" max="10000">
+            </label>
+        </div>
+    </section>
+</main>
+
+<footer class="savebar">
+    <div id="message" class="message"></div>
+    <button id="reload" type="button" class="secondary">Перезагрузить</button>
+    <button id="save" type="button">Сохранить настройки</button>
+</footer>
+
+<script src="/admin/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+server:
+  port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: bitrix-document-ai-bot
+  threads:
+    virtual:
+      enabled: true
+
+app:
+  data-dir: ${APP_DATA_DIR:./data}
+  admin:
+    username: ${APP_ADMIN_USERNAME:admin}
+    password: ${APP_ADMIN_PASSWORD:change-this-password}
+  bitrix:
+    poll-delay-ms: ${BITRIX_POLL_DELAY_MS:5000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    ru.abs.bitrixdocbot: INFO
