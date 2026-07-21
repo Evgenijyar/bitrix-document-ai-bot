@@ -1,12 +1,15 @@
 package ru.abs.bitrixdocbot.bitrix;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import ru.abs.bitrixdocbot.logging.LogSanitizer;
@@ -112,7 +115,7 @@ public class BitrixRestClient {
             byte[] data = restClientBuilder.build()
                 .get()
                 .uri(url)
-                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.8")
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.9")
                 .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL)
                 .retrieve()
                 .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
@@ -127,14 +130,7 @@ public class BitrixRestClient {
                 })
                 .body(byte[].class);
 
-            if (data == null || data.length == 0) {
-                throw new BitrixApiException("Downloaded Bitrix24 file is empty");
-            }
-            if (looksLikeRestError(data)) {
-                String body = new String(data, StandardCharsets.UTF_8);
-                throw new BitrixApiException("Bitrix24 download URL returned a REST error: "
-                    + LogSanitizer.shortValue(body, 500));
-            }
+            validateDownloadedBytes(data);
 
             long durationMs = (System.nanoTime() - started) / 1_000_000;
             log.info("BITRIX FILE <- callId={} bytes={} durationMs={}", callId, data.length, durationMs);
@@ -149,6 +145,87 @@ public class BitrixRestClient {
             log.error("BITRIX FILE !! callId={} durationMs={} message={}",
                 callId, durationMs, exception.getMessage(), exception);
             throw new BitrixApiException("Bitrix24 file download failed: " + safeMessage(exception), exception);
+        }
+    }
+
+
+    public byte[] downloadPostJson(String url, Map<String, Object> payload) {
+        if (url == null || !url.startsWith("https://")) {
+            throw new BitrixApiException("Bitrix24 returned an invalid HTTPS download URL");
+        }
+        return executeDownload(url, "POST_JSON", spec -> spec
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(payload));
+    }
+
+    public byte[] downloadPostForm(String url, Map<String, Object> payload) {
+        if (url == null || !url.startsWith("https://")) {
+            throw new BitrixApiException("Bitrix24 returned an invalid HTTPS download URL");
+        }
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        payload.forEach((key, value) -> {
+            if (value != null) {
+                form.add(key, String.valueOf(value));
+            }
+        });
+        return executeDownload(url, "POST_FORM", spec -> spec
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .body(form));
+    }
+
+    private byte[] executeDownload(
+        String url,
+        String mode,
+        java.util.function.UnaryOperator<RestClient.RequestBodySpec> requestCustomizer
+    ) {
+        long callId = CALL_SEQUENCE.incrementAndGet();
+        long started = System.nanoTime();
+        log.info("BITRIX FILE -> callId={} mode={} url={}", callId, mode, LogSanitizer.safeEndpoint(url));
+        try {
+            RestClient.RequestBodySpec request = restClientBuilder.build()
+                .post()
+                .uri(url)
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.9")
+                .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL);
+
+            byte[] data = requestCustomizer.apply(request)
+                .retrieve()
+                .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
+                    byte[] responseBytes = httpResponse.getBody().readAllBytes();
+                    String responseBody = new String(responseBytes, StandardCharsets.UTF_8);
+                    log.error("BITRIX FILE HTTP ERROR callId={} mode={} status={} body={}",
+                        callId, mode, httpResponse.getStatusCode(), LogSanitizer.shortValue(responseBody, 1_000));
+                    throw new BitrixApiException("Bitrix24 file download HTTP " + httpResponse.getStatusCode()
+                        + ": " + LogSanitizer.shortValue(responseBody, 500));
+                })
+                .body(byte[].class);
+
+            validateDownloadedBytes(data);
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.info("BITRIX FILE <- callId={} mode={} bytes={} durationMs={}",
+                callId, mode, data.length, durationMs);
+            return data;
+        } catch (BitrixApiException exception) {
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.error("BITRIX FILE !! callId={} mode={} durationMs={} message={}",
+                callId, mode, durationMs, exception.getMessage(), exception);
+            throw exception;
+        } catch (Exception exception) {
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.error("BITRIX FILE !! callId={} mode={} durationMs={} message={}",
+                callId, mode, durationMs, exception.getMessage(), exception);
+            throw new BitrixApiException("Bitrix24 file download failed: " + safeMessage(exception), exception);
+        }
+    }
+
+    private void validateDownloadedBytes(byte[] data) {
+        if (data == null || data.length == 0) {
+            throw new BitrixApiException("Downloaded Bitrix24 file is empty");
+        }
+        if (looksLikeRestError(data)) {
+            String body = new String(data, StandardCharsets.UTF_8);
+            throw new BitrixApiException("Bitrix24 download URL returned a REST error: "
+                + LogSanitizer.shortValue(body, 500));
         }
     }
 
