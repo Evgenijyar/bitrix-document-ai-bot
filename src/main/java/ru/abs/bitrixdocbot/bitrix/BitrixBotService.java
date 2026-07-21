@@ -161,7 +161,7 @@ public class BitrixBotService {
         List<String> failures = new ArrayList<>();
 
         try {
-            DownloadedBitrixFile downloaded = downloadViaUserChatApi(
+            DownloadedBitrixFile downloaded = downloadViaAuthorizedUserApi(
                 bitrix, dialogId, diskObjectId, metadata.fileName(), metadata.size());
             log.info("BITRIX FILE acquisition completed diskObjectId={} source={} name={} bytes={}",
                 diskObjectId, downloaded.source(), downloaded.fileName(), downloaded.content().length);
@@ -234,6 +234,60 @@ public class BitrixBotService {
             return new ResolvedFileMetadata(
                 attachment.fileName(), attachment.declaredSize(), null);
         }
+    }
+
+    /**
+     * imbot.v2 events expose dialogId from the bot's point of view. In a private chat that value is
+     * the human user ID. im.v2.File.download, however, is executed through the incoming webhook as
+     * that human user, so the personal dialog ID must point to the other participant: the bot ID.
+     * Group dialog IDs (chat123) are identical for both perspectives.
+     */
+    private DownloadedBitrixFile downloadViaAuthorizedUserApi(
+        BitrixSettings bitrix,
+        String eventDialogId,
+        long fileId,
+        String fileName,
+        Long expectedSize
+    ) {
+        List<String> candidates = resolveAuthorizedUserDialogCandidates(bitrix, eventDialogId);
+        List<String> failures = new ArrayList<>();
+
+        for (String candidate : candidates) {
+            try {
+                log.info("BITRIX FILE authorized-user dialog mapping eventDialogId={} apiDialogId={} "
+                        + "botId={} fileId={}",
+                    eventDialogId, candidate, bitrix.getBotId(), fileId);
+                return downloadViaUserChatApi(bitrix, candidate, fileId, fileName, expectedSize);
+            } catch (BitrixApiException exception) {
+                failures.add(candidate + ": " + concise(exception));
+                log.warn("BITRIX FILE authorized-user candidate failed eventDialogId={} apiDialogId={} "
+                        + "fileId={} reason={}",
+                    eventDialogId, candidate, fileId, concise(exception));
+            }
+        }
+
+        throw new BitrixApiException(
+            "im.v2.File.download failed for dialog candidates: " + String.join("; ", failures));
+    }
+
+    List<String> resolveAuthorizedUserDialogCandidates(BitrixSettings bitrix, String eventDialogId) {
+        if (eventDialogId == null || eventDialogId.isBlank()) {
+            return List.of();
+        }
+
+        String normalized = eventDialogId.trim();
+        if (normalized.regionMatches(true, 0, "chat", 0, 4)) {
+            return List.of(normalized);
+        }
+
+        List<String> candidates = new ArrayList<>();
+        if (bitrix.getBotId() != null && bitrix.getBotId() > 0) {
+            candidates.add(String.valueOf(bitrix.getBotId()));
+        }
+        if (!candidates.contains(normalized)) {
+            candidates.add(normalized);
+        }
+        return List.copyOf(candidates);
     }
 
     private DownloadedBitrixFile downloadViaUserChatApi(

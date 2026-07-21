@@ -62,7 +62,7 @@ class BitrixBotServiceTest {
         verify(restClient).call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), requestCaptor.capture());
         Map<String, Object> request = (Map<String, Object>) requestCaptor.getValue();
         assertThat(request).containsExactlyInAnyOrderEntriesOf(Map.of(
-            "dialogId", "216",
+            "dialogId", "1084",
             "fileId", 239596L
         ));
         assertThat(result.source()).isEqualTo("im.v2.File.download");
@@ -131,6 +131,18 @@ class BitrixBotServiceTest {
 
         assertThat(result.source()).isEqualTo("disk.file.getVersions");
         assertThat(result.content()).isEqualTo(bytes);
+    }
+
+    @Test
+    void mapsPrivateBotEventDialogToBotIdForAuthorizedUserApi() {
+        assertThat(service.resolveAuthorizedUserDialogCandidates(settings, "216"))
+            .containsExactly("1084", "216");
+    }
+
+    @Test
+    void keepsGroupDialogIdForAuthorizedUserApi() {
+        assertThat(service.resolveAuthorizedUserDialogCandidates(settings, "chat87000"))
+            .containsExactly("chat87000");
     }
 
     @Test
