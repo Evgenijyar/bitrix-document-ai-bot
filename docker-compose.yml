@@ -11,7 +11,7 @@ services:
       SERVER_PORT: 8080
       APP_DATA_DIR: /data
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8084}:8080"
     volumes:
       - bitrix-document-ai-bot-data:/data
     healthcheck:
