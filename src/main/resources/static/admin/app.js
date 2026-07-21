@@ -1,4 +1,4 @@
-const $ = (id) => document.getElementById(id);
+const $ = id => document.getElementById(id);
 let state = null;
 
 function newOperationId() {
@@ -97,37 +97,35 @@ function setBusy(button, busy) {
     }
 }
 
-function fillModel(prefix, model) {
-    $(`${prefix}Provider`).value = model.provider || 'OPENAI';
-    $(`${prefix}Endpoint`).value = model.endpoint || '';
-    $(`${prefix}ModelId`).value = model.modelId || '';
-    $(`${prefix}ApiKey`).value = '';
-    $(`${prefix}KeyState`).textContent = model.apiKeyConfigured
+function fillModel(model) {
+    $('complexProvider').value = model.provider || 'OPENAI';
+    $('complexEndpoint').value = model.endpoint || '';
+    $('complexModelId').value = model.modelId || '';
+    $('complexApiKey').value = '';
+    $('complexKeyState').textContent = model.apiKeyConfigured
         ? 'Ключ сохранён. Оставьте поле пустым, чтобы не менять его.'
         : 'Ключ пока не сохранён.';
 }
 
-function readModel(prefix) {
+function readModel() {
     return {
-        provider: $(`${prefix}Provider`).value,
-        endpoint: $(`${prefix}Endpoint`).value.trim(),
-        modelId: $(`${prefix}ModelId`).value.trim(),
-        apiKey: $(`${prefix}ApiKey`).value.trim()
+        provider: $('complexProvider').value,
+        endpoint: $('complexEndpoint').value.trim(),
+        modelId: $('complexModelId').value.trim(),
+        apiKey: $('complexApiKey').value.trim()
     };
 }
 
 function render(config) {
     state = config;
-    fillModel('simple', config.simpleModel);
-    fillModel('complex', config.complexModel);
+    fillModel(config.complexModel);
     $('bitrixWebhook').value = config.bitrix.webhookUrl || '';
     $('bitrixBotId').value = config.bitrix.botId || '';
     $('bitrixBotCode').value = config.bitrix.botCode || '';
     $('bitrixBotName').value = config.bitrix.botName || '';
     $('bitrixWorkPosition').value = config.bitrix.workPosition || '';
-    $('relevancePrompt').value = config.relevancePrompt || '';
     $('analysisPrompt').value = config.analysisPrompt || '';
-    $('irrelevantReply').value = config.irrelevantReply || '';
+    $('noFilesReply').value = config.noFilesReply || 'Прикрепите файлы документов';
     $('processingReply').value = config.processingReply || '';
     $('errorReply').value = config.errorReply || '';
     $('maxFileCount').value = config.maxFileCount;
@@ -139,8 +137,7 @@ function render(config) {
 
 function collect() {
     return {
-        simpleModel: readModel('simple'),
-        complexModel: readModel('complex'),
+        complexModel: readModel(),
         bitrix: {
             webhookUrl: $('bitrixWebhook').value.trim(),
             botId: state?.bitrix?.botId || null,
@@ -148,9 +145,8 @@ function collect() {
             botName: $('bitrixBotName').value.trim(),
             workPosition: $('bitrixWorkPosition').value.trim()
         },
-        relevancePrompt: $('relevancePrompt').value,
         analysisPrompt: $('analysisPrompt').value,
-        irrelevantReply: $('irrelevantReply').value,
+        noFilesReply: $('noFilesReply').value,
         processingReply: $('processingReply').value,
         errorReply: $('errorReply').value,
         maxFileCount: Number($('maxFileCount').value),
@@ -169,14 +165,13 @@ async function load() {
         api('/api/admin/status')
     ]);
     render(config);
-    const ready = status.simpleModelConfigured && status.complexModelConfigured && status.botRegistered;
+    const ready = status.complexModelConfigured && status.botRegistered;
     $('globalStatus').textContent = ready ? `Готов · bot ${status.botId}` : 'Требуется настройка';
     $('globalStatus').className = `status-pill ${ready ? 'ok' : ''}`;
     setMessage('Настройки загружены.', 'ok');
     browserLog('info', 'LOAD settings completed', {
         ready,
         botId: status.botId,
-        simpleModelConfigured: status.simpleModelConfigured,
         complexModelConfigured: status.complexModelConfigured
     });
 }
@@ -256,11 +251,9 @@ $('checkBitrix').addEventListener('click', event => {
     saveThenAction(event.currentTarget, '/api/admin/bitrix/check', 'Бот найден.');
 });
 
-document.querySelectorAll('.test-model').forEach(button => {
-    button.addEventListener('click', () => {
-        browserLog('info', 'TEST MODEL button clicked', { target: button.dataset.target });
-        saveThenAction(button, `/api/admin/models/test?target=${button.dataset.target}`, 'API отвечает.');
-    });
+$('testModel').addEventListener('click', event => {
+    browserLog('info', 'TEST MODEL button clicked', { target: 'complex' });
+    saveThenAction(event.currentTarget, '/api/admin/model/test', 'API отвечает.');
 });
 
 window.addEventListener('error', event => {

@@ -1,24 +1,23 @@
 # Changelog
 
+## 0.1.5
+
+- Полностью удалена простая проверочная модель и весь LLM-классификатор релевантности.
+- Удалены настройки простой модели и промпт релевантности из backend, DTO и админки.
+- Сообщения без вложений сразу получают ответ `Прикрепите файлы документов`.
+- Все вложения проверяются кодом: Apache Tika пытается извлечь текст без жёсткого ограничения только PDF/DOC/DOCX.
+- Файлы без извлекаемого текста пропускаются; если подходящих файлов не осталось, LLM не вызывается.
+- Основная модель вызывается только при наличии хотя бы одного документа с извлечённым текстом.
+- Добавлена миграция старого `/data/config.json` с удалением `simpleModel`, `relevancePrompt` и `irrelevantReply`.
+- Endpoint теста основной модели упрощён до `/api/admin/model/test`.
+- Версия приложения обновлена до `0.1.5-SNAPSHOT`.
+
+## 0.1.4
+
+- Добавлена поддержка базового OpenAI-compatible endpoint `/v1` с автоматическим переходом на `/v1/chat/completions`.
+- Добавлен формат Tokenator Chat Completions и `reasoning.enabled`.
+- Исправлен health check серверного deploy-скрипта.
+
 ## 0.1.3
 
-- Added correlated console logging for all admin API operations with `operationId`.
-- Added detailed Bitrix24 bot registration, bot check, polling, message and file operation logs.
-- Added safe outbound Bitrix24/OpenAI/Google request and response summaries.
-- Added full stack traces and HTTP response bodies for failed external API calls.
-- Added configuration persistence logs without exposing API keys, webhook secrets or bot tokens.
-- Added browser console logging for every admin button and HTTP request.
-- Fixed unhandled frontend promise errors when saving before bot registration or model tests.
-- Added configurable `APP_LOG_LEVEL` and an operation ID in the console log pattern.
-
-## 0.1.2
-
-- Fixed HTTP 404 at `/admin/`.
-- `/`, `/admin`, and `/admin/` now redirect to `/admin/index.html`.
-- Added a regression test for the admin entry-point redirect.
-
-## 0.1.1
-
-- Updated deprecated Jackson 3 calls to `isString()`, `asString()` and `isContainer()`.
-- Removed all reported Jackson 3 deprecation warnings.
-- Fixed compilation failure caused by the removed `isContainerNode()` method.
+- Добавлено подробное диагностическое логирование админки, Bitrix24 и LLM.

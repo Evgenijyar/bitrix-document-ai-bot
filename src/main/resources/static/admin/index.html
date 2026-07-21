@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bitrix Document AI Bot</title>
-    <link rel="stylesheet" href="/admin/style.css">
+    <link rel="stylesheet" href="/admin/style.css?v=0.1.5">
 </head>
 <body>
 <header class="topbar">
     <div>
         <div class="eyebrow">BITRIX24 · DOCUMENT AI</div>
         <h1>Настройки бота анализа документов</h1>
-        <p>Две независимые модели, Bitrix24 Chatbots 2.0 и редактируемые системные промпты.</p>
+        <p>Одна основная LLM, программная проверка вложений и Bitrix24 Chatbots 2.0.</p>
     </div>
     <div id="globalStatus" class="status-pill">Загрузка…</div>
 </header>
@@ -48,39 +48,12 @@
         <p class="hint">Используется режим fetch: внешний callback URL для событий не требуется.</p>
     </section>
 
-    <section class="card model-card">
+    <section class="card full model-card">
         <div class="card-title">
-            <div><span class="step">02</span><h2>Простая модель</h2></div>
-            <button type="button" class="secondary test-model" data-target="simple">Проверить API</button>
+            <div><span class="step">02</span><h2>Основная модель анализа</h2></div>
+            <button type="button" class="secondary" id="testModel">Проверить API</button>
         </div>
-        <p class="muted">Определяет, относится ли запрос к анализу документов.</p>
-        <div class="grid">
-            <label>Провайдер
-                <select id="simpleProvider">
-                    <option value="OPENAI">OpenAI API</option>
-                    <option value="GOOGLE">Google API</option>
-                </select>
-            </label>
-            <label>Endpoint
-                <input id="simpleEndpoint" type="url" placeholder="https://host/v1 или полный URL метода">
-                <small>OpenAI-compatible: базовый адрес <code>.../v1</code> автоматически дополняется до <code>.../v1/chat/completions</code>.</small>
-            </label>
-            <label>Model ID
-                <input id="simpleModelId" type="text" placeholder="ID модели">
-            </label>
-            <label>API key
-                <input id="simpleApiKey" type="password" autocomplete="new-password" placeholder="Введите новый ключ">
-                <small id="simpleKeyState"></small>
-            </label>
-        </div>
-    </section>
-
-    <section class="card model-card">
-        <div class="card-title">
-            <div><span class="step">03</span><h2>Основная модель</h2></div>
-            <button type="button" class="secondary test-model" data-target="complex">Проверить API</button>
-        </div>
-        <p class="muted">Получает извлечённый текст PDF/DOC/DOCX и формирует итоговый анализ.</p>
+        <p class="muted">Получает текст из прикреплённых файлов и формирует итоговый анализ. Проверочной модели больше нет.</p>
         <div class="grid">
             <label>Провайдер
                 <select id="complexProvider">
@@ -103,22 +76,18 @@
     </section>
 
     <section class="card full">
-        <div class="card-title"><div><span class="step">04</span><h2>Промпты</h2></div></div>
-        <div class="prompt-grid">
-            <label>Промпт определения релевантности
-                <textarea id="relevancePrompt" rows="14"></textarea>
-            </label>
-            <label>Основной системный промпт анализа
-                <textarea id="analysisPrompt" rows="14"></textarea>
-            </label>
-        </div>
+        <div class="card-title"><div><span class="step">03</span><h2>Основной промпт</h2></div></div>
+        <label>Системный промпт анализа
+            <textarea id="analysisPrompt" rows="18"></textarea>
+        </label>
     </section>
 
     <section class="card full">
-        <div class="card-title"><div><span class="step">05</span><h2>Ответы и ограничения</h2></div></div>
+        <div class="card-title"><div><span class="step">04</span><h2>Ответы и ограничения</h2></div></div>
+        <p class="hint">Если сообщение пришло без вложений, бот не вызывает LLM и сразу отвечает: «Прикрепите файлы документов».</p>
         <div class="grid three">
-            <label>Ответ на нерелевантный запрос
-                <textarea id="irrelevantReply" rows="4"></textarea>
+            <label>Ответ на сообщение без файлов
+                <textarea id="noFilesReply" rows="4"></textarea>
             </label>
             <label>Сообщение о начале анализа
                 <textarea id="processingReply" rows="4"></textarea>
@@ -151,6 +120,6 @@
     <button id="save" type="button">Сохранить настройки</button>
 </footer>
 
-<script src="/admin/app.js"></script>
+<script src="/admin/app.js?v=0.1.5"></script>
 </body>
 </html>

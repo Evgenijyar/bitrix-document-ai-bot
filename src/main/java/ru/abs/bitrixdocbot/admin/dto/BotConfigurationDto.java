@@ -7,15 +7,12 @@ import jakarta.validation.constraints.Min;
 public class BotConfigurationDto {
 
     @Valid
-    private ModelSettingsDto simpleModel = new ModelSettingsDto();
-    @Valid
     private ModelSettingsDto complexModel = new ModelSettingsDto();
     @Valid
     private BitrixSettingsDto bitrix = new BitrixSettingsDto();
 
-    private String relevancePrompt = "";
     private String analysisPrompt = "";
-    private String irrelevantReply = "";
+    private String noFilesReply = "";
     private String processingReply = "";
     private String errorReply = "";
 
@@ -31,14 +28,6 @@ public class BotConfigurationDto {
     @Min(500)
     @Max(10000)
     private int outgoingMessageChunkSize = 3_500;
-
-    public ModelSettingsDto getSimpleModel() {
-        return simpleModel;
-    }
-
-    public void setSimpleModel(ModelSettingsDto simpleModel) {
-        this.simpleModel = simpleModel;
-    }
 
     public ModelSettingsDto getComplexModel() {
         return complexModel;
@@ -56,14 +45,6 @@ public class BotConfigurationDto {
         this.bitrix = bitrix;
     }
 
-    public String getRelevancePrompt() {
-        return relevancePrompt;
-    }
-
-    public void setRelevancePrompt(String relevancePrompt) {
-        this.relevancePrompt = relevancePrompt;
-    }
-
     public String getAnalysisPrompt() {
         return analysisPrompt;
     }
@@ -72,12 +53,12 @@ public class BotConfigurationDto {
         this.analysisPrompt = analysisPrompt;
     }
 
-    public String getIrrelevantReply() {
-        return irrelevantReply;
+    public String getNoFilesReply() {
+        return noFilesReply;
     }
 
-    public void setIrrelevantReply(String irrelevantReply) {
-        this.irrelevantReply = irrelevantReply;
+    public void setNoFilesReply(String noFilesReply) {
+        this.noFilesReply = noFilesReply;
     }
 
     public String getProcessingReply() {

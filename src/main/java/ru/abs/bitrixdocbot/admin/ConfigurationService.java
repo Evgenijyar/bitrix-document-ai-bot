@@ -29,8 +29,7 @@ public class ConfigurationService {
 
     public BotConfigurationDto getForAdmin() {
         BotConfiguration snapshot = store.getSnapshot();
-        log.debug("CONFIG snapshot prepared for admin simple={} complex={} bitrixWebhook={} botId={}",
-            modelSummary(snapshot.getSimpleModel()),
+        log.debug("CONFIG snapshot prepared for admin complex={} bitrixWebhook={} botId={}",
             modelSummary(snapshot.getComplexModel()),
             LogSanitizer.maskWebhook(snapshot.getBitrix().getWebhookUrl()),
             snapshot.getBitrix().getBotId());
@@ -41,19 +40,14 @@ public class ConfigurationService {
         BotConfiguration current = store.getSnapshot();
         BotConfiguration updated = new BotConfiguration();
 
-        boolean simpleKeySubmitted = dto.getSimpleModel() != null
-            && dto.getSimpleModel().getApiKey() != null
-            && !dto.getSimpleModel().getApiKey().isBlank();
         boolean complexKeySubmitted = dto.getComplexModel() != null
             && dto.getComplexModel().getApiKey() != null
             && !dto.getComplexModel().getApiKey().isBlank();
 
-        updated.setSimpleModel(toModel(dto.getSimpleModel(), current.getSimpleModel()));
         updated.setComplexModel(toModel(dto.getComplexModel(), current.getComplexModel()));
         updated.setBitrix(toBitrix(dto.getBitrix(), current.getBitrix()));
-        updated.setRelevancePrompt(nullToEmpty(dto.getRelevancePrompt()));
         updated.setAnalysisPrompt(nullToEmpty(dto.getAnalysisPrompt()));
-        updated.setIrrelevantReply(nullToEmpty(dto.getIrrelevantReply()));
+        updated.setNoFilesReply(defaultIfBlank(dto.getNoFilesReply(), "Прикрепите файлы документов"));
         updated.setProcessingReply(nullToEmpty(dto.getProcessingReply()));
         updated.setErrorReply(nullToEmpty(dto.getErrorReply()));
         updated.setMaxFileCount(dto.getMaxFileCount());
@@ -62,19 +56,20 @@ public class ConfigurationService {
         updated.setMaxTotalExtractedChars(dto.getMaxTotalExtractedChars());
         updated.setOutgoingMessageChunkSize(dto.getOutgoingMessageChunkSize());
 
-        log.info("CONFIG save details simple={} simpleKeySubmitted={} complex={} complexKeySubmitted={} "
-                + "bitrixWebhook={} botCode={} botName={} registrationReset={} prompts=[relevance:{},analysis:{}] "
+        log.info("CONFIG save details complex={} complexKeySubmitted={} "
+                + "bitrixWebhook={} botCode={} botName={} registrationReset={} prompt=[analysis:{}] "
+                + "replies=[noFiles:{},processing:{},error:{}] "
                 + "limits=[files:{},fileBytes:{},charsPerFile:{},totalChars:{},chunk:{}]",
-            modelSummary(updated.getSimpleModel()),
-            simpleKeySubmitted,
             modelSummary(updated.getComplexModel()),
             complexKeySubmitted,
             LogSanitizer.maskWebhook(updated.getBitrix().getWebhookUrl()),
             updated.getBitrix().getBotCode(),
             updated.getBitrix().getBotName(),
             current.getBitrix().getBotId() != null && updated.getBitrix().getBotId() == null,
-            updated.getRelevancePrompt().length(),
             updated.getAnalysisPrompt().length(),
+            updated.getNoFilesReply().length(),
+            updated.getProcessingReply().length(),
+            updated.getErrorReply().length(),
             updated.getMaxFileCount(),
             updated.getMaxFileSizeBytes(),
             updated.getMaxExtractedCharsPerFile(),
@@ -149,12 +144,10 @@ public class ConfigurationService {
 
     private BotConfigurationDto toDto(BotConfiguration source) {
         BotConfigurationDto dto = new BotConfigurationDto();
-        dto.setSimpleModel(toDto(source.getSimpleModel()));
         dto.setComplexModel(toDto(source.getComplexModel()));
         dto.setBitrix(toDto(source.getBitrix()));
-        dto.setRelevancePrompt(source.getRelevancePrompt());
         dto.setAnalysisPrompt(source.getAnalysisPrompt());
-        dto.setIrrelevantReply(source.getIrrelevantReply());
+        dto.setNoFilesReply(source.getNoFilesReply());
         dto.setProcessingReply(source.getProcessingReply());
         dto.setErrorReply(source.getErrorReply());
         dto.setMaxFileCount(source.getMaxFileCount());
@@ -202,6 +195,11 @@ public class ConfigurationService {
             normalized += "/";
         }
         return normalized;
+    }
+
+    private String defaultIfBlank(String value, String defaultValue) {
+        String normalized = nullToEmpty(value).trim();
+        return normalized.isBlank() ? defaultValue : normalized;
     }
 
     private String nullToEmpty(String value) {

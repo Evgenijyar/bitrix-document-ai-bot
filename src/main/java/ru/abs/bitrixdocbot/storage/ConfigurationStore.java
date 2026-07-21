@@ -12,7 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import ru.abs.bitrixdocbot.config.ApplicationProperties;
+import ru.abs.bitrixdocbot.domain.BitrixSettings;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
+import ru.abs.bitrixdocbot.domain.ModelSettings;
 import tools.jackson.databind.ObjectMapper;
 
 @Service
@@ -35,19 +37,25 @@ public class ConfigurationStore {
         log.info("CONFIG STORE initialization started path={}", configPath.toAbsolutePath());
         Files.createDirectories(configPath.getParent());
         if (Files.exists(configPath)) {
-            configuration = objectMapper.readValue(configPath.toFile(), BotConfiguration.class);
-            log.info("CONFIG STORE existing configuration loaded path={} bytes={}",
-                configPath.toAbsolutePath(), Files.size(configPath));
+            String rawConfiguration = Files.readString(configPath);
+            boolean legacyClassifierFieldsPresent = containsLegacyClassifierFields(rawConfiguration);
+            configuration = objectMapper.readValue(rawConfiguration, BotConfiguration.class);
+            log.info("CONFIG STORE existing configuration loaded path={} bytes={} classifierFieldsMigrated={}",
+                configPath.toAbsolutePath(), Files.size(configPath), legacyClassifierFieldsPresent);
+            normalize(configuration);
+            if (legacyClassifierFieldsPresent) {
+                persist(configuration);
+                log.info("CONFIG STORE legacy classifier configuration removed from persisted config");
+            }
         } else {
             configuration = new BotConfiguration();
             persist(configuration);
             log.info("CONFIG STORE default configuration created path={}", configPath.toAbsolutePath());
         }
         normalize(configuration);
-        log.info("CONFIG STORE initialization completed botId={} bitrixReady={} simpleConfigured={} complexConfigured={}",
+        log.info("CONFIG STORE initialization completed botId={} bitrixReady={} complexConfigured={}",
             configuration.getBitrix().getBotId(),
             configuration.getBitrix().isReadyForPolling(),
-            configuration.getSimpleModel().isConfigured(),
             configuration.getComplexModel().isConfigured());
     }
 
@@ -86,6 +94,12 @@ public class ConfigurationStore {
         }
     }
 
+    private boolean containsLegacyClassifierFields(String json) {
+        return json.contains("\"simpleModel\"")
+            || json.contains("\"relevancePrompt\"")
+            || json.contains("\"irrelevantReply\"");
+    }
+
     private void persist(BotConfiguration value) {
         long started = System.nanoTime();
         try {
@@ -111,14 +125,23 @@ public class ConfigurationStore {
     }
 
     private void normalize(BotConfiguration value) {
-        if (value.getSimpleModel() == null) {
-            value.setSimpleModel(new ru.abs.bitrixdocbot.domain.ModelSettings());
-        }
         if (value.getComplexModel() == null) {
-            value.setComplexModel(new ru.abs.bitrixdocbot.domain.ModelSettings());
+            value.setComplexModel(new ModelSettings());
         }
         if (value.getBitrix() == null) {
-            value.setBitrix(new ru.abs.bitrixdocbot.domain.BitrixSettings());
+            value.setBitrix(new BitrixSettings());
+        }
+        if (value.getAnalysisPrompt() == null) {
+            value.setAnalysisPrompt("");
+        }
+        if (value.getNoFilesReply() == null || value.getNoFilesReply().isBlank()) {
+            value.setNoFilesReply("Прикрепите файлы документов");
+        }
+        if (value.getProcessingReply() == null) {
+            value.setProcessingReply("");
+        }
+        if (value.getErrorReply() == null) {
+            value.setErrorReply("");
         }
     }
 }
