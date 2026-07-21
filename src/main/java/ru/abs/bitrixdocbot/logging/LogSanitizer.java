@@ -56,7 +56,7 @@ public final class LogSanitizer {
         try {
             URI uri = URI.create(value.trim());
             String path = uri.getPath() == null ? "" : uri.getPath();
-            return buildOrigin(uri) + maskWebhookTokenInsidePath(path);
+            return buildOrigin(uri) + maskWebhookTokenInsidePath(path) + safeQuerySummary(uri.getRawQuery());
         } catch (Exception ignored) {
             return shortValue(value, DEFAULT_TEXT_LIMIT);
         }
@@ -231,6 +231,25 @@ public final class LogSanitizer {
             || normalized.equals("instructions")
             || normalized.contains("prompt")
             || normalized.endsWith("reply");
+    }
+
+
+    private static String safeQuerySummary(String rawQuery) {
+        if (rawQuery == null || rawQuery.isBlank()) {
+            return "";
+        }
+        List<String> keys = new ArrayList<>();
+        for (String part : rawQuery.split("&")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            int separator = part.indexOf('=');
+            String key = separator < 0 ? part : part.substring(0, separator);
+            if (!key.isBlank() && !keys.contains(key)) {
+                keys.add(key);
+            }
+        }
+        return keys.isEmpty() ? "?params=<present>" : "?params=" + String.join(",", keys);
     }
 
     private static String buildOrigin(URI uri) {

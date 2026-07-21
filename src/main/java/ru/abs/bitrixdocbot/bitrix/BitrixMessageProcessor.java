@@ -59,11 +59,13 @@ public class BitrixMessageProcessor {
             return;
         }
 
+        String chatDialogId = eventParser.extractChatDialogId(data);
         String userText = eventParser.extractMessageText(data);
         List<BitrixAttachment> attachments = eventParser.extractAttachments(data);
 
-        log.info("MESSAGE PROCESSOR started dialogId={} userTextChars={} attachments={} files={}",
+        log.info("MESSAGE PROCESSOR started dialogId={} chatDialogId={} userTextChars={} attachments={} files={}",
             dialogId,
+            chatDialogId,
             userText == null ? 0 : userText.length(),
             attachments.size(),
             attachments.stream().map(attachment -> attachment.fileName() + "#" + attachment.fileId())
@@ -93,7 +95,7 @@ public class BitrixMessageProcessor {
                 }
 
                 DownloadedBitrixFile downloaded = botService.downloadFile(
-                    configuration.getBitrix(), dialogId, attachment);
+                    configuration.getBitrix(), dialogId, chatDialogId, attachment);
                 byte[] content = downloaded.content();
                 String resolvedFileName = downloaded.fileName();
                 Long resolvedDeclaredSize = downloaded.declaredSize();

@@ -28,6 +28,17 @@ public class BitrixEventParser {
         return chatId > 0 ? "chat" + chatId : "";
     }
 
+    public String extractChatDialogId(JsonNode data) {
+        long chatId = data.at("/chat/id").asLong(0);
+        if (chatId <= 0) {
+            chatId = data.at("/message/chatId").asLong(0);
+        }
+        if (chatId <= 0) {
+            chatId = data.at("/message/chat_id").asLong(0);
+        }
+        return chatId > 0 ? "chat" + chatId : "";
+    }
+
     public String extractMessageText(JsonNode data) {
         for (String pointer : new String[]{"/message/text", "/message/message", "/message/body", "/text"}) {
             String value = data.at(pointer).asString("");

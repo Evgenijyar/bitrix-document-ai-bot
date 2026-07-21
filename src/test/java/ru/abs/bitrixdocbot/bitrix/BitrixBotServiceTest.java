@@ -39,122 +39,95 @@ class BitrixBotServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void downloadsChatFileThroughAuthorizedUserMethod() throws Exception {
+    void downloadsChatFileThroughOfficialFormJsonTransport() throws Exception {
         byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
         JsonNode metadata = mapper.readTree("""
-            {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2}}
+            {"result":{"ID":239596,"FILE_ID":275538,"NAME":"contract.pdf","SIZE":9}}
             """);
         JsonNode downloadResponse = mapper.readTree("""
             {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc"}}
             """);
 
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("disk.file.get"), any(), any()))
             .thenReturn(metadata);
-        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any(),
+            eq(BitrixApiTransport.FORM_JSON_SUFFIX)))
             .thenReturn(downloadResponse);
         when(restClient.download("https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc"))
             .thenReturn(bytes);
 
         DownloadedBitrixFile result = service.downloadFile(
-            settings, "216", new BitrixAttachment(239596L, "bitrix-file-239596", null));
+            settings,
+            "216",
+            "chat87000",
+            new BitrixAttachment(239596L, "bitrix-file-239596", null));
 
         ArgumentCaptor<Object> requestCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(restClient).call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), requestCaptor.capture());
+        verify(restClient).call(
+            eq(settings.getWebhookUrl()),
+            eq("im.v2.File.download"),
+            requestCaptor.capture(),
+            eq(BitrixApiTransport.FORM_JSON_SUFFIX));
         Map<String, Object> request = (Map<String, Object>) requestCaptor.getValue();
         assertThat(request).containsExactlyInAnyOrderEntriesOf(Map.of(
-            "dialogId", "1084",
+            "dialogId", "chat87000",
             "fileId", 239596L
         ));
-        assertThat(result.source()).isEqualTo("im.v2.File.download");
+        assertThat(result.source()).isEqualTo("im.v2.File.download/form-json-suffix");
         assertThat(result.fileName()).isEqualTo("contract.pdf");
         assertThat(result.declaredSize()).isEqualTo(9L);
         assertThat(result.content()).isEqualTo(bytes);
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void fallsBackToBotMethodWhenImScopeIsUnavailable() throws Exception {
+    void triesInternalFileIdWhenDiskObjectIdDoesNotProduceBinary() throws Exception {
         byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
         JsonNode metadata = mapper.readTree("""
-            {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9}}
+            {"result":{"ID":239596,"FILE_ID":275538,"NAME":"contract.pdf","SIZE":9}}
             """);
-        JsonNode botResponse = mapper.readTree("""
-            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=imbot%7Cabc"}}
+        JsonNode badResponse = mapper.readTree("""
+            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/216/webhook-secret/download/"}}
+            """);
+        JsonNode goodResponse = mapper.readTree("""
+            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=im%7Cgood"}}
             """);
 
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("disk.file.get"), any(), any()))
             .thenReturn(metadata);
-        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
-            .thenThrow(new BitrixApiException("insufficient_scope"));
-        when(restClient.call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), any()))
-            .thenReturn(botResponse);
-        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?token=imbot%7Cabc"))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any(), any()))
+            .thenAnswer(invocation -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> request = invocation.getArgument(2);
+                return Long.valueOf(275538L).equals(request.get("fileId")) ? goodResponse : badResponse;
+            });
+        when(restClient.download("https://portal.bitrix24.ru/rest/216/webhook-secret/download/"))
+            .thenThrow(new BitrixApiException("404"));
+        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?token=im%7Cgood"))
             .thenReturn(bytes);
 
         DownloadedBitrixFile result = service.downloadFile(
-            settings, "216", new BitrixAttachment(239596L, "contract.pdf", 9L));
+            settings, "216", null, new BitrixAttachment(239596L, "contract.pdf", 9L));
 
-        ArgumentCaptor<Object> requestCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(restClient).call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), requestCaptor.capture());
-        Map<String, Object> request = (Map<String, Object>) requestCaptor.getValue();
-        assertThat(request).containsEntry("botId", 1084L)
-            .containsEntry("botToken", "bot-secret")
-            .containsEntry("fileId", 239596L);
-        assertThat(result.source()).isEqualTo("imbot.v2.File.download");
-    }
-
-    @Test
-    void fallsBackToCurrentDiskVersionWhenChatMethodsAreUnavailable() throws Exception {
-        byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
-        JsonNode metadata = mapper.readTree("""
-            {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2}}
-            """);
-        JsonNode versions = mapper.readTree("""
-            {"result":[{"ID":7001,"OBJECT_ID":239596,"NAME":"contract.pdf","SIZE":9,
-              "GLOBAL_CONTENT_VERSION":2,
-              "DOWNLOAD_URL":"https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"}]}
-            """);
-
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
-            .thenReturn(metadata);
-        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
-            .thenThrow(new BitrixApiException("temporary error"));
-        when(restClient.call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), any()))
-            .thenThrow(new BitrixApiException("temporary error"));
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.getVersions", Map.of("id", 239596L, "start", 0)))
-            .thenReturn(versions);
-        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"))
-            .thenReturn(bytes);
-
-        DownloadedBitrixFile result = service.downloadFile(
-            settings, "216", new BitrixAttachment(239596L, "contract.pdf", 9L));
-
-        assertThat(result.source()).isEqualTo("disk.file.getVersions");
         assertThat(result.content()).isEqualTo(bytes);
+        assertThat(result.source()).contains("im.v2.File.download");
     }
 
     @Test
-    void mapsPrivateBotEventDialogToBotIdForAuthorizedUserApi() {
-        assertThat(service.resolveAuthorizedUserDialogCandidates(settings, "216"))
-            .containsExactly("1084", "216");
+    void keepsAllDialogPerspectivesInDeterministicOrder() {
+        assertThat(service.resolveAuthorizedUserDialogCandidates(settings, "216", "chat87000"))
+            .containsExactly("chat87000", "1084", "216");
     }
 
     @Test
-    void keepsGroupDialogIdForAuthorizedUserApi() {
-        assertThat(service.resolveAuthorizedUserDialogCandidates(settings, "chat87000"))
-            .containsExactly("chat87000");
-    }
-
-    @Test
-    void acceptsOnlySignedRestDownloadJsonUrls() {
+    void acceptsAnyHttpsUrlOnTheSamePortalAndRejectsForeignHost() {
         assertThat(service.isUsableDownloadUrl(
-            "https://portal.bitrix24.ru/rest/216/webhook-secret/download/",
-            settings.getWebhookUrl()
-        )).isFalse();
-
-        assertThat(service.isUsableDownloadUrl(
-            "https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc",
+            "https://portal.bitrix24.ru/rest/216/webhook-secret/download/?id=1",
             settings.getWebhookUrl()
         )).isTrue();
+
+        assertThat(service.isUsableDownloadUrl(
+            "https://attacker.example/download.pdf",
+            settings.getWebhookUrl()
+        )).isFalse();
     }
 }

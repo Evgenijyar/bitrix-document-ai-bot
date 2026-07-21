@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.14
+
+- File-related REST methods now use a transport matrix matching the official Bitrix24 webhook generator, CRest and PHP SDK: `.json` + form, `.json` + JSON, trailing-slash + JSON, and legacy direct JSON.
+- Returned file URLs are requested exactly as supplied by Bitrix24 instead of being rejected solely by path shape.
+- Added shared cookie storage and redirect handling for REST-to-download handoffs.
+- Both Disk object ID and internal `FILE_ID` are tried.
+- Private user ID, bot ID and actual `chat{chatId}` are tried as dialog perspectives.
+- Downloaded bytes still must match the declared size and PDF/DOC/DOCX signatures before text extraction.
+
 ## 0.1.9
 - Исправлена загрузка URL вида `/rest/{user}/{webhook}/download/`, которые облачный Bitrix24 возвращает вместо `/rest/download.json?token=...`.
 - Для legacy download endpoint добавлены POST form и POST JSON стратегии с `id`, `fileId`, `botId`, `botToken`, `dialogId`.
