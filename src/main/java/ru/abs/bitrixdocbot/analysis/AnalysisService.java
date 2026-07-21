@@ -43,13 +43,16 @@ public class AnalysisService {
             ==================== КОНЕЦ КОМПЛЕКТА ДОКУМЕНТОВ ====================
             """.formatted(userText == null || userText.isBlank() ? "Не указан" : userText, documentsText);
 
+        String systemPrompt = SAFETY_PREFIX + configuration.getAnalysisPrompt();
+        log.warn("==================== LLM SYSTEM PROMPT START ====================\n{}\n==================== LLM SYSTEM PROMPT END ======================", systemPrompt);
+        log.warn("==================== LLM USER PROMPT START ======================\n{}\n==================== LLM USER PROMPT END ========================", userPrompt);
         log.info("ANALYSIS started analysisPromptChars={} userTextChars={} documentBundleChars={}",
             configuration.getAnalysisPrompt() == null ? 0 : configuration.getAnalysisPrompt().length(),
             userText == null ? 0 : userText.length(),
             documentsText == null ? 0 : documentsText.length());
         String result = llmGateway.generate(
             configuration.getComplexModel(),
-            SAFETY_PREFIX + configuration.getAnalysisPrompt(),
+            systemPrompt,
             userPrompt
         );
         log.info("ANALYSIS completed outputChars={}", result.length());

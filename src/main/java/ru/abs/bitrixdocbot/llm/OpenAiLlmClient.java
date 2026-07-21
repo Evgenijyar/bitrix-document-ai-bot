@@ -17,11 +17,13 @@ import org.springframework.web.client.RestClient;
 import ru.abs.bitrixdocbot.domain.ModelSettings;
 import ru.abs.bitrixdocbot.logging.LogSanitizer;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 public class OpenAiLlmClient implements LlmClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiLlmClient.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient.Builder restClientBuilder;
 
@@ -37,12 +39,12 @@ public class OpenAiLlmClient implements LlmClient {
             : buildResponsesRequest(settings.getModelId(), systemPrompt, userPrompt);
 
         long started = System.nanoTime();
-        log.info("OPENAI API -> configuredEndpoint={} resolvedEndpoint={} modelId={} apiMode={} request={}",
+        log.info("OPENAI API -> configuredEndpoint={} resolvedEndpoint={} modelId={} apiMode={}",
             LogSanitizer.safeEndpoint(settings.getEndpoint()),
             LogSanitizer.safeEndpoint(resolved.url()),
             settings.getModelId(),
-            resolved.mode().logValue,
-            LogSanitizer.sanitize(request));
+            resolved.mode().logValue);
+        log.warn("==================== EXACT LLM HTTP JSON BODY START ====================\n{}\n==================== EXACT LLM HTTP JSON BODY END ======================", toJson(request));
 
         try {
             JsonNode response;
@@ -89,6 +91,14 @@ public class OpenAiLlmClient implements LlmClient {
                 exception.getMessage(),
                 exception);
             throw exception;
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(value);
+        } catch (Exception exception) {
+            return String.valueOf(value);
         }
     }
 
