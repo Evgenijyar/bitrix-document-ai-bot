@@ -174,3 +174,7 @@ LLM GATEWAY
 - Нет OAuth и публикации в Маркете Bitrix24.
 - Один контейнер должен быть единственным poller для данного бота.
 - Для очень больших документов текст обрезается согласно лимитам в настройках.
+
+### Bitrix24 file download implementation
+
+For incoming chat files the application uses the Drive API sequence `disk.file.get` → `disk.file.getVersions` → `disk.version.get` when a fresh link is needed. Only the signed `https://<portal>/rest/download.json?...token=...` URL is fetched. The URL is passed as an exact `URI`, preserving the signed query string byte-for-byte. The resulting binary is validated and then parsed by Apache Tika.

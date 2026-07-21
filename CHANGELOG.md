@@ -17,3 +17,10 @@
 - Adds file SHA-256, detected MIME type, and magic bytes to diagnostics.
 - Tries concrete webhook download candidates using both disk object ID and internal FILE_ID.
 - Tries public-link download variants before rejecting the response.
+
+## 0.1.11
+
+- Replaced guessed webhook download endpoints and public viewer links with the official Disk version flow.
+- The backend now obtains metadata with `disk.file.get`, resolves the current version with `disk.file.getVersions`, optionally refreshes it with `disk.version.get`, and downloads the exact signed `/rest/download.json` URL.
+- Signed download URLs are passed to Spring as `URI` objects so `%`-encoded authorization tokens are not re-encoded.
+- Downloaded byte length and PDF/DOC/DOCX signatures are checked before Apache Tika receives the file.

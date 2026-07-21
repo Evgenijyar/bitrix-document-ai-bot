@@ -1,5 +1,6 @@
 package ru.abs.bitrixdocbot.bitrix;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -114,8 +115,8 @@ public class BitrixRestClient {
         try {
             byte[] data = restClientBuilder.build()
                 .get()
-                .uri(url)
-                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.10")
+                .uri(URI.create(url))
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.11")
                 .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL)
                 .retrieve()
                 .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
@@ -184,8 +185,8 @@ public class BitrixRestClient {
         try {
             RestClient.RequestBodySpec request = restClientBuilder.build()
                 .post()
-                .uri(url)
-                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.10")
+                .uri(URI.create(url))
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.11")
                 .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL);
 
             byte[] data = requestCustomizer.apply(request)

@@ -12,7 +12,7 @@
 
     <groupId>ru.abs</groupId>
     <artifactId>bitrix-document-ai-bot</artifactId>
-    <version>0.1.10-SNAPSHOT</version>
+    <version>0.1.11-SNAPSHOT</version>
     <name>bitrix-document-ai-bot</name>
     <description>Bitrix24 bot for one-shot AI document analysis</description>
 

@@ -1,7 +1,6 @@
 package ru.abs.bitrixdocbot.bitrix;
 
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -139,11 +138,12 @@ public class BitrixBotService {
     }
 
     /**
-     * Downloads a file attached to a message.
+     * Downloads the real binary file attached to a Bitrix24 chat message.
      *
-     * Primary route: imbot.v2.File.download with the dialogId from the actual event.
-     * Fallback route: disk.file.get, which supplies both real metadata and a machine download URL.
-     * The fallback requires the existing incoming webhook to have the additional {@code disk} scope.
+     * The reliable route for incoming-webhook integrations is:
+     * disk.file.get -> disk.file.getVersions -> disk.version.get (when needed) -> exact signed DOWNLOAD_URL.
+     * Bitrix24 documents these version URLs as /rest/download.json?...token=disk..., and they contain
+     * the authorization token required to fetch the binary payload.
      */
     public DownloadedBitrixFile downloadFile(
         BitrixSettings bitrix,
@@ -151,47 +151,148 @@ public class BitrixBotService {
         BitrixAttachment attachment
     ) {
         long fileId = attachment.fileId();
-        log.info("BITRIX FILE acquisition started botId={} dialogId={} fileId={} eventName={} eventBytes={}",
+        log.info("BITRIX FILE acquisition started botId={} dialogId={} diskObjectId={} eventName={} eventBytes={}",
             bitrix.getBotId(), dialogId, fileId, attachment.fileName(), attachment.declaredSize());
 
         List<String> failures = new ArrayList<>();
 
         try {
+            DownloadedBitrixFile downloaded = downloadViaDiskVersionApi(bitrix, attachment);
+            log.info("BITRIX FILE acquisition completed diskObjectId={} source={} name={} bytes={}",
+                fileId, downloaded.source(), downloaded.fileName(), downloaded.content().length);
+            return downloaded;
+        } catch (BitrixApiException exception) {
+            failures.add("disk.file.getVersions: " + concise(exception));
+            log.warn("BITRIX FILE disk-version route failed diskObjectId={} reason={} fallback=imbot.v2.File.download",
+                fileId, concise(exception));
+        }
+
+        try {
             DownloadedBitrixFile downloaded = downloadViaBotApi(bitrix, dialogId, attachment);
-            log.info("BITRIX FILE acquisition completed fileId={} source={} name={} bytes={}",
+            log.info("BITRIX FILE acquisition completed diskObjectId={} source={} name={} bytes={}",
                 fileId, downloaded.source(), downloaded.fileName(), downloaded.content().length);
             return downloaded;
         } catch (BitrixApiException exception) {
             failures.add("imbot.v2.File.download: " + concise(exception));
-            log.warn("BITRIX FILE primary route failed fileId={} dialogId={} reason={} fallback=disk.file.get",
-                fileId, dialogId, concise(exception));
-        }
-
-        try {
-            DownloadedBitrixFile downloaded = downloadViaDiskApi(bitrix, attachment);
-            log.info("BITRIX FILE acquisition completed fileId={} source={} name={} bytes={}",
-                fileId, downloaded.source(), downloaded.fileName(), downloaded.content().length);
-            return downloaded;
-        } catch (BitrixApiException exception) {
-            failures.add("disk.file.get: " + concise(exception));
-            log.error("BITRIX FILE fallback route failed fileId={} reason={}", fileId, concise(exception), exception);
-        }
-
-        try {
-            DownloadedBitrixFile downloaded = downloadViaExternalLink(bitrix, attachment);
-            log.info("BITRIX FILE acquisition completed fileId={} source={} name={} bytes={}",
-                fileId, downloaded.source(), downloaded.fileName(), downloaded.content().length);
-            return downloaded;
-        } catch (BitrixApiException exception) {
-            failures.add("disk.file.getExternalLink: " + concise(exception));
-            log.error("BITRIX FILE external-link route failed fileId={} reason={}",
+            log.error("BITRIX FILE bot route failed diskObjectId={} reason={}",
                 fileId, concise(exception), exception);
         }
 
         throw new BitrixApiException(
-            "Не удалось получить файл из Bitrix24 после всех поддерживаемых способов скачивания. "
-                + String.join("; ", failures)
+            "Не удалось скачать бинарный файл из Bitrix24. " + String.join("; ", failures)
         );
+    }
+
+    private DownloadedBitrixFile downloadViaDiskVersionApi(
+        BitrixSettings bitrix,
+        BitrixAttachment attachment
+    ) {
+        long diskObjectId = attachment.fileId();
+        log.info("BITRIX FILE metadata request method=disk.file.get diskObjectId={}", diskObjectId);
+
+        JsonNode metadataResponse;
+        try {
+            metadataResponse = bitrixRestClient.call(
+                bitrix.getWebhookUrl(), "disk.file.get", Map.of("id", diskObjectId));
+        } catch (BitrixApiException exception) {
+            if (isScopeError(exception)) {
+                throw new BitrixApiException(
+                    "Вебхуку Bitrix24 требуется право disk и право чтения файла.", exception);
+            }
+            throw exception;
+        }
+
+        JsonNode metadata = metadataResponse.path("result");
+        String realName = firstText(metadata, "NAME", "name");
+        Long realSize = firstLongOrNull(metadata, "SIZE", "size");
+        Long globalContentVersion = firstLongOrNull(
+            metadata, "GLOBAL_CONTENT_VERSION", "globalContentVersion");
+        String resolvedName = realName.isBlank() ? attachment.fileName() : realName;
+        Long resolvedSize = realSize == null ? attachment.declaredSize() : realSize;
+
+        log.info("BITRIX FILE metadata received diskObjectId={} internalFileId={} name={} bytes={} globalVersion={}",
+            diskObjectId,
+            firstLongOrNull(metadata, "FILE_ID", "fileId"),
+            resolvedName,
+            resolvedSize,
+            globalContentVersion);
+
+        JsonNode versionsResponse = bitrixRestClient.call(
+            bitrix.getWebhookUrl(),
+            "disk.file.getVersions",
+            Map.of("id", diskObjectId, "start", 0)
+        );
+        JsonNode versions = versionsResponse.path("result");
+        if (!versions.isArray() || versions.isEmpty()) {
+            throw new BitrixApiException("disk.file.getVersions returned no versions for file " + diskObjectId);
+        }
+
+        JsonNode selectedVersion = selectCurrentVersion(versions, globalContentVersion);
+        Long versionId = firstLongOrNull(selectedVersion, "ID", "id");
+        String versionName = firstText(selectedVersion, "NAME", "name");
+        Long versionSize = firstLongOrNull(selectedVersion, "SIZE", "size");
+        String downloadUrl = firstText(selectedVersion, "DOWNLOAD_URL", "downloadUrl");
+
+        if (!versionName.isBlank()) {
+            resolvedName = versionName;
+        }
+        if (versionSize != null) {
+            resolvedSize = versionSize;
+        }
+
+        // Request the selected version once more when the list response does not contain a canonical
+        // signed URL. This produces a fresh one-time DOWNLOAD_URL according to the Disk API contract.
+        if (!isUsableDownloadUrl(downloadUrl, bitrix.getWebhookUrl()) && versionId != null) {
+            log.info("BITRIX FILE refreshing signed URL method=disk.version.get versionId={}", versionId);
+            JsonNode versionResponse = bitrixRestClient.call(
+                bitrix.getWebhookUrl(), "disk.version.get", Map.of("id", versionId));
+            JsonNode version = versionResponse.path("result");
+            String refreshedName = firstText(version, "NAME", "name");
+            Long refreshedSize = firstLongOrNull(version, "SIZE", "size");
+            downloadUrl = firstText(version, "DOWNLOAD_URL", "downloadUrl");
+            if (!refreshedName.isBlank()) {
+                resolvedName = refreshedName;
+            }
+            if (refreshedSize != null) {
+                resolvedSize = refreshedSize;
+            }
+        }
+
+        if (!isUsableDownloadUrl(downloadUrl, bitrix.getWebhookUrl())) {
+            throw new BitrixApiException(
+                "Bitrix24 did not return a signed /rest/download.json URL for file " + diskObjectId);
+        }
+
+        log.info("BITRIX FILE signed URL ready diskObjectId={} versionId={} name={} expectedBytes={} url={}",
+            diskObjectId, versionId, resolvedName, resolvedSize, LogSanitizer.safeEndpoint(downloadUrl));
+
+        byte[] content = bitrixRestClient.download(downloadUrl);
+        validateDownloadedDocumentBytes(resolvedName, resolvedSize, content);
+        return new DownloadedBitrixFile(
+            diskObjectId,
+            resolvedName,
+            resolvedSize,
+            content,
+            "disk.file.getVersions"
+        );
+    }
+
+    private JsonNode selectCurrentVersion(JsonNode versions, Long globalContentVersion) {
+        JsonNode first = null;
+        for (JsonNode version : versions.values()) {
+            if (first == null) {
+                first = version;
+            }
+            Long candidate = firstLongOrNull(
+                version, "GLOBAL_CONTENT_VERSION", "globalContentVersion");
+            if (globalContentVersion != null && globalContentVersion.equals(candidate)) {
+                return version;
+            }
+        }
+        if (first == null) {
+            throw new BitrixApiException("Bitrix24 returned an empty file version list");
+        }
+        return first;
     }
 
     private DownloadedBitrixFile downloadViaBotApi(
@@ -203,28 +304,21 @@ public class BitrixBotService {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("botId", bitrix.getBotId());
         request.put("botToken", bitrix.getBotToken());
-        // The official quick-start example includes dialogId. Some cloud revisions generate a bad
-        // webhook-like URL when it is omitted, even though the dedicated method page marks only fileId as required.
         if (dialogId != null && !dialogId.isBlank()) {
             request.put("dialogId", dialogId);
         }
         request.put("fileId", fileId);
 
-        log.info("BITRIX FILE primary metadata request method=imbot.v2.File.download fileId={} dialogId={}",
-            fileId, dialogId);
-        JsonNode response = bitrixRestClient.call(bitrix.getWebhookUrl(), "imbot.v2.File.download", request);
+        JsonNode response = bitrixRestClient.call(
+            bitrix.getWebhookUrl(), "imbot.v2.File.download", request);
         String downloadUrl = firstText(response.path("result"), "downloadUrl", "DOWNLOAD_URL");
-        if (downloadUrl.isBlank()) {
-            throw new BitrixApiException("Bitrix24 did not return downloadUrl for file " + fileId);
-        }
-        if (!isSamePortalHttpsUrl(downloadUrl, bitrix.getWebhookUrl())) {
-            throw new BitrixApiException("Bitrix24 returned an invalid download URL: "
-                + LogSanitizer.safeEndpoint(downloadUrl));
+        if (!isUsableDownloadUrl(downloadUrl, bitrix.getWebhookUrl())) {
+            throw new BitrixApiException(
+                "imbot.v2.File.download did not return a canonical signed download URL");
         }
 
-        log.info("BITRIX FILE primary URL accepted fileId={} url={}",
-            fileId, LogSanitizer.safeEndpoint(downloadUrl));
-        byte[] content = downloadReturnedUrl(bitrix, dialogId, fileId, downloadUrl);
+        byte[] content = bitrixRestClient.download(downloadUrl);
+        validateDownloadedDocumentBytes(attachment.fileName(), attachment.declaredSize(), content);
         return new DownloadedBitrixFile(
             fileId,
             attachment.fileName(),
@@ -234,247 +328,42 @@ public class BitrixBotService {
         );
     }
 
-    private DownloadedBitrixFile downloadViaDiskApi(
-        BitrixSettings bitrix,
-        BitrixAttachment attachment
-    ) {
-        long fileId = attachment.fileId();
-        log.info("BITRIX FILE fallback metadata request method=disk.file.get fileId={}", fileId);
-
-        JsonNode response;
-        try {
-            response = bitrixRestClient.call(bitrix.getWebhookUrl(), "disk.file.get", Map.of("id", fileId));
-        } catch (BitrixApiException exception) {
-            if (isScopeError(exception)) {
-                throw new BitrixApiException(
-                    "Webhook does not have disk scope. Add the disk permission to the existing incoming webhook.",
-                    exception
-                );
-            }
-            throw exception;
-        }
-
-        JsonNode result = response.path("result");
-        String downloadUrl = firstText(result, "DOWNLOAD_URL", "downloadUrl");
-        if (downloadUrl.isBlank()) {
-            throw new BitrixApiException("disk.file.get did not return DOWNLOAD_URL for file " + fileId);
-        }
-        if (!isSamePortalHttpsUrl(downloadUrl, bitrix.getWebhookUrl())) {
-            throw new BitrixApiException("disk.file.get returned an invalid download URL: "
-                + LogSanitizer.safeEndpoint(downloadUrl));
-        }
-
-        String realName = firstText(result, "NAME", "name");
-        Long realSize = firstLongOrNull(result, "SIZE", "size");
-        String resolvedName = realName.isBlank() ? attachment.fileName() : realName;
-        Long resolvedSize = realSize == null ? attachment.declaredSize() : realSize;
-
-        Long internalFileId = firstLongOrNull(result, "FILE_ID", "fileId");
-        log.info("BITRIX FILE fallback metadata received diskObjectId={} internalFileId={} name={} declaredBytes={} url={}",
-            fileId, internalFileId, resolvedName, resolvedSize, LogSanitizer.safeEndpoint(downloadUrl));
-
-        List<String> candidateUrls = buildWebhookDownloadCandidates(
-            bitrix.getWebhookUrl(), downloadUrl, fileId, internalFileId);
-        List<String> errors = new ArrayList<>();
-        for (String candidateUrl : candidateUrls) {
-            try {
-                log.info("BITRIX FILE trying concrete download candidate diskObjectId={} internalFileId={} url={}",
-                    fileId, internalFileId, LogSanitizer.safeEndpoint(candidateUrl));
-                byte[] content = bitrixRestClient.download(candidateUrl);
-                validateDownloadedDocumentBytes(resolvedName, content);
-                return new DownloadedBitrixFile(
-                    fileId,
-                    resolvedName,
-                    resolvedSize,
-                    content,
-                    "disk.file.get"
-                );
-            } catch (BitrixApiException exception) {
-                errors.add(LogSanitizer.safeEndpoint(candidateUrl) + ": " + concise(exception));
-            }
-        }
-        throw new BitrixApiException("disk.file.get returned metadata, but no concrete download candidate produced the file: "
-            + String.join("; ", errors));
-    }
-
-    private byte[] downloadReturnedUrl(
-        BitrixSettings bitrix,
-        String dialogId,
-        long fileId,
-        String downloadUrl
-    ) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("id", fileId);
-        payload.put("fileId", fileId);
-        if (bitrix.getBotId() != null) {
-            payload.put("botId", bitrix.getBotId());
-        }
-        if (bitrix.getBotToken() != null && !bitrix.getBotToken().isBlank()) {
-            payload.put("botToken", bitrix.getBotToken());
-        }
-        if (dialogId != null && !dialogId.isBlank()) {
-            payload.put("dialogId", dialogId);
-        }
-
-        boolean webhookDownloadEndpoint = isWebhookDownloadEndpoint(downloadUrl);
-        List<String> errors = new ArrayList<>();
-
-        if (webhookDownloadEndpoint) {
-            log.info("BITRIX FILE legacy webhook download endpoint detected fileId={} strategy=POST_FORM", fileId);
-            try {
-                return bitrixRestClient.downloadPostForm(downloadUrl, payload);
-            } catch (BitrixApiException exception) {
-                errors.add("POST_FORM: " + concise(exception));
-            }
-            try {
-                return bitrixRestClient.downloadPostJson(downloadUrl, payload);
-            } catch (BitrixApiException exception) {
-                errors.add("POST_JSON: " + concise(exception));
-            }
-        }
-
-        try {
-            return bitrixRestClient.download(downloadUrl);
-        } catch (BitrixApiException exception) {
-            errors.add("GET: " + concise(exception));
-        }
-
-        if (!webhookDownloadEndpoint) {
-            try {
-                return bitrixRestClient.downloadPostForm(downloadUrl, payload);
-            } catch (BitrixApiException exception) {
-                errors.add("POST_FORM: " + concise(exception));
-            }
-        }
-
-        throw new BitrixApiException("All download URL strategies failed for file " + fileId
-            + ": " + String.join("; ", errors));
-    }
-
-    private DownloadedBitrixFile downloadViaExternalLink(
-        BitrixSettings bitrix,
-        BitrixAttachment attachment
-    ) {
-        long fileId = attachment.fileId();
-        JsonNode metadata = bitrixRestClient.call(bitrix.getWebhookUrl(), "disk.file.get", Map.of("id", fileId));
-        JsonNode metadataResult = metadata.path("result");
-        String realName = firstText(metadataResult, "NAME", "name");
-        Long realSize = firstLongOrNull(metadataResult, "SIZE", "size");
-        String resolvedName = realName.isBlank() ? attachment.fileName() : realName;
-        Long resolvedSize = realSize == null ? attachment.declaredSize() : realSize;
-
-        log.info("BITRIX FILE external link request method=disk.file.getExternalLink fileId={} name={}",
-            fileId, resolvedName);
-        JsonNode response = bitrixRestClient.call(
-            bitrix.getWebhookUrl(),
-            "disk.file.getExternalLink",
-            Map.of("id", fileId)
-        );
-        JsonNode result = response.path("result");
-        String url = result.isString() ? result.asString("")
-            : firstText(result, "DOWNLOAD_URL", "downloadUrl", "url", "URL");
-        if (!isSamePortalHttpsUrl(url, bitrix.getWebhookUrl())) {
-            throw new BitrixApiException("disk.file.getExternalLink returned an invalid URL: "
-                + LogSanitizer.safeEndpoint(url));
-        }
-
-        List<String> candidates = externalLinkCandidates(url);
-        List<String> failures = new ArrayList<>();
-        for (String candidate : candidates) {
-            try {
-                log.info("BITRIX FILE external link candidate fileId={} url={}",
-                    fileId, LogSanitizer.safeEndpoint(candidate));
-                byte[] content = bitrixRestClient.download(candidate);
-                validateDownloadedDocumentBytes(resolvedName, content);
-                return new DownloadedBitrixFile(
-                    fileId,
-                    resolvedName,
-                    resolvedSize,
-                    content,
-                    "disk.file.getExternalLink"
-                );
-            } catch (BitrixApiException exception) {
-                failures.add(LogSanitizer.safeEndpoint(candidate) + ": " + concise(exception));
-            }
-        }
-        throw new BitrixApiException("Public Bitrix link returned viewer HTML or another non-document payload: "
-            + String.join("; ", failures));
-    }
-
-    private List<String> buildWebhookDownloadCandidates(
-        String webhookUrl,
-        String returnedUrl,
-        long diskObjectId,
-        Long internalFileId
-    ) {
-        String base = webhookUrl.endsWith("/") ? webhookUrl : webhookUrl + "/";
-        List<String> urls = new ArrayList<>();
-        if (internalFileId != null) {
-            urls.add(base + "download.json?id=" + internalFileId);
-            urls.add(base + "download/?id=" + internalFileId);
-        }
-        urls.add(base + "download.json?id=" + diskObjectId);
-        urls.add(base + "download/?id=" + diskObjectId);
-        urls.add(returnedUrl);
-        return urls.stream().distinct().toList();
-    }
-
-    private List<String> externalLinkCandidates(String url) {
-        String separator = url.contains("?") ? "&" : "?";
-        String trimmed = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-        return List.of(
-            url + separator + "download=1",
-            url + separator + "download=Y",
-            trimmed + "/download/",
-            url
-        ).stream().distinct().toList();
-    }
-
-    private void validateDownloadedDocumentBytes(String fileName, byte[] content) {
+    private void validateDownloadedDocumentBytes(String fileName, Long expectedSize, byte[] content) {
         if (content == null || content.length == 0) {
-            throw new BitrixApiException("Downloaded content is empty");
+            throw new BitrixApiException("Downloaded Bitrix24 file is empty");
         }
+        if (expectedSize != null && expectedSize > 0 && expectedSize.longValue() != content.length) {
+            throw new BitrixApiException(
+                "Downloaded file size mismatch: expected " + expectedSize + ", received " + content.length);
+        }
+
         String prefix = new String(content, 0, Math.min(content.length, 512), StandardCharsets.UTF_8)
             .stripLeading().toLowerCase(Locale.ROOT);
         if (prefix.startsWith("<!doctype html") || prefix.startsWith("<html") || prefix.contains("<title>")) {
-            throw new BitrixApiException("Bitrix24 returned an HTML viewer page instead of document bytes");
+            throw new BitrixApiException("Bitrix24 returned HTML instead of the document binary");
         }
+
         String lowerName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
         if (lowerName.endsWith(".pdf")) {
-            byte[] pdf = "%PDF-".getBytes(StandardCharsets.US_ASCII);
-            if (content.length < pdf.length) {
-                throw new BitrixApiException("Downloaded content is not a PDF file");
-            }
-            for (int i = 0; i < pdf.length; i++) {
-                if (content[i] != pdf[i]) {
-                    throw new BitrixApiException("Downloaded content is not a PDF file");
-                }
-            }
+            requireMagic(content, "%PDF-".getBytes(StandardCharsets.US_ASCII), "PDF");
+        } else if (lowerName.endsWith(".doc")) {
+            requireMagic(content,
+                new byte[]{(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1},
+                "DOC");
+        } else if (lowerName.endsWith(".docx") || lowerName.endsWith(".odt")
+            || lowerName.endsWith(".xlsx") || lowerName.endsWith(".pptx")) {
+            requireMagic(content, new byte[]{0x50, 0x4B}, "ZIP-based Office document");
         }
     }
 
-    private boolean isWebhookDownloadEndpoint(String value) {
-        try {
-            String path = normalizePath(URI.create(value.trim()).getPath());
-            return path.matches("/rest/[^/]+/[^/]+/download");
-        } catch (Exception ignored) {
-            return false;
+    private void requireMagic(byte[] content, byte[] expected, String type) {
+        if (content.length < expected.length) {
+            throw new BitrixApiException("Downloaded content is not a valid " + type + " file");
         }
-    }
-
-    private boolean isSamePortalHttpsUrl(String value, String webhookUrl) {
-        if (value == null || value.isBlank()) {
-            return false;
-        }
-        try {
-            URI uri = URI.create(value.trim());
-            URI webhook = URI.create(webhookUrl.trim());
-            return "https".equalsIgnoreCase(uri.getScheme())
-                && uri.getHost() != null
-                && webhook.getHost() != null
-                && webhook.getHost().equalsIgnoreCase(uri.getHost());
-        } catch (Exception ignored) {
-            return false;
+        for (int index = 0; index < expected.length; index++) {
+            if (content[index] != expected[index]) {
+                throw new BitrixApiException("Downloaded content is not a valid " + type + " file");
+            }
         }
     }
 
@@ -491,19 +380,11 @@ public class BitrixBotService {
             if (webhook.getHost() != null && !webhook.getHost().equalsIgnoreCase(uri.getHost())) {
                 return false;
             }
-
             String path = normalizePath(uri.getPath());
-            String webhookPath = normalizePath(webhook.getPath());
-            boolean looksLikeWebhookMethod = path.equals(webhookPath + "/download")
-                || path.matches("/rest/[^/]+/[^/]+/download");
-            boolean hasMachineToken = uri.getRawQuery() != null
-                && (uri.getRawQuery().contains("token=")
-                    || uri.getRawQuery().contains("auth=")
-                    || uri.getRawQuery().contains("sessid="));
-
-            // Official machine URLs normally look like /rest/download.json?...token=...
-            // The bad URL observed on this portal looks like /rest/{user}/{webhook}/download/.
-            return !looksLikeWebhookMethod || hasMachineToken;
+            String query = uri.getRawQuery();
+            return "/rest/download.json".equalsIgnoreCase(path)
+                && query != null
+                && (query.contains("token=") || query.contains("auth="));
         } catch (Exception ignored) {
             return false;
         }
