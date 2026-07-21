@@ -1,16 +1,82 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 
+function newOperationId() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID().replaceAll('-', '').slice(0, 16);
+    }
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function browserLog(level, message, details = {}) {
+    const logger = console[level] || console.log;
+    logger.call(console, `[BITRIX BOT ADMIN] ${message}`, details);
+}
+
+function responseSummary(body) {
+    if (body === null || body === undefined) return body;
+    if (typeof body === 'string') return { type: 'text', length: body.length };
+    if (Array.isArray(body)) return { type: 'array', length: body.length };
+    return {
+        type: 'object',
+        keys: Object.keys(body),
+        ok: body.ok,
+        error: body.error,
+        message: body.message,
+        botId: body?.result?.bot?.id ?? body?.result?.id ?? body?.result?.botId ?? body?.result
+    };
+}
+
 async function api(url, options = {}) {
-    const response = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-        ...options
-    });
+    const operationId = newOperationId();
+    const method = options.method || 'GET';
+    const started = performance.now();
+
+    browserLog('info', `HTTP -> ${method} ${url}`, { operationId });
+
+    let response;
+    try {
+        response = await fetch(url, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Operation-Id': operationId,
+                ...(options.headers || {})
+            }
+        });
+    } catch (networkError) {
+        browserLog('error', `HTTP !! ${method} ${url}: network error`, {
+            operationId,
+            error: networkError
+        });
+        const error = new Error(`Сетевая ошибка. Operation ID: ${operationId}`);
+        error.operationId = operationId;
+        throw error;
+    }
+
     const text = await response.text();
     let body = null;
-    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+    try {
+        body = text ? JSON.parse(text) : null;
+    } catch {
+        body = text;
+    }
+
+    const durationMs = Math.round(performance.now() - started);
+    browserLog(response.ok ? 'info' : 'error', `HTTP <- ${method} ${url}`, {
+        operationId,
+        status: response.status,
+        durationMs,
+        response: responseSummary(body)
+    });
+
     if (!response.ok) {
-        throw new Error(body?.message || body?.error_description || body?.error || `HTTP ${response.status}`);
+        const message = body?.message || body?.error_description || body?.error || `HTTP ${response.status}`;
+        const error = new Error(`${message} [operationId=${operationId}]`);
+        error.operationId = operationId;
+        error.status = response.status;
+        error.body = body;
+        throw error;
     }
     return body;
 }
@@ -96,6 +162,7 @@ function collect() {
 }
 
 async function load() {
+    browserLog('info', 'LOAD settings started');
     setMessage('Загружаю настройки…');
     const [config, status] = await Promise.all([
         api('/api/admin/config'),
@@ -106,51 +173,108 @@ async function load() {
     $('globalStatus').textContent = ready ? `Готов · bot ${status.botId}` : 'Требуется настройка';
     $('globalStatus').className = `status-pill ${ready ? 'ok' : ''}`;
     setMessage('Настройки загружены.', 'ok');
+    browserLog('info', 'LOAD settings completed', {
+        ready,
+        botId: status.botId,
+        simpleModelConfigured: status.simpleModelConfigured,
+        complexModelConfigured: status.complexModelConfigured
+    });
 }
 
 async function save() {
     const button = $('save');
     setBusy(button, true);
+    browserLog('info', 'SAVE button operation started');
     try {
         const saved = await api('/api/admin/config', { method: 'PUT', body: JSON.stringify(collect()) });
         render(saved);
         setMessage('Настройки сохранены.', 'ok');
+        browserLog('info', 'SAVE button operation completed');
+        return saved;
     } catch (error) {
         setMessage(error.message, 'error');
+        browserLog('error', 'SAVE button operation failed', { error });
         throw error;
     } finally {
         setBusy(button, false);
     }
 }
 
+function botIdFromResult(result) {
+    const candidate = result?.result?.bot?.id
+        ?? result?.result?.id
+        ?? result?.result?.botId
+        ?? result?.result?.BOT_ID
+        ?? (typeof result?.result === 'number' ? result.result : null);
+    return candidate || null;
+}
+
 async function action(button, url, successText) {
     setBusy(button, true);
+    browserLog('info', `ACTION started ${url}`);
     try {
         const result = await api(url, { method: 'POST' });
-        setMessage(`${successText} ${result?.result?.bot?.id ? `ID: ${result.result.bot.id}` : ''}`.trim(), 'ok');
+        const botId = botIdFromResult(result);
+        setMessage(`${successText}${botId ? ` ID: ${botId}` : ''}`, 'ok');
+        browserLog('info', `ACTION completed ${url}`, { botId, response: responseSummary(result) });
         await load();
+        return result;
     } catch (error) {
         setMessage(error.message, 'error');
+        browserLog('error', `ACTION failed ${url}`, { error });
+        throw error;
     } finally {
         setBusy(button, false);
     }
 }
 
-$('save').addEventListener('click', save);
-$('reload').addEventListener('click', () => load().catch(error => setMessage(error.message, 'error')));
-$('registerBitrix').addEventListener('click', async (event) => {
-    await save();
-    await action(event.currentTarget, '/api/admin/bitrix/register', 'Бот зарегистрирован.');
-});
-$('checkBitrix').addEventListener('click', async (event) => {
-    await save();
-    await action(event.currentTarget, '/api/admin/bitrix/check', 'Бот найден.');
-});
-document.querySelectorAll('.test-model').forEach(button => {
-    button.addEventListener('click', async () => {
+async function saveThenAction(button, url, successText) {
+    try {
         await save();
-        await action(button, `/api/admin/models/test?target=${button.dataset.target}`, 'API отвечает.');
+        await action(button, url, successText);
+    } catch (error) {
+        // save() or action() already displayed and logged the precise error.
+    }
+}
+
+$('save').addEventListener('click', () => {
+    save().catch(() => {});
+});
+
+$('reload').addEventListener('click', () => {
+    browserLog('info', 'RELOAD button clicked');
+    load().catch(error => setMessage(error.message, 'error'));
+});
+
+$('registerBitrix').addEventListener('click', event => {
+    browserLog('info', 'REGISTER BOT button clicked');
+    saveThenAction(event.currentTarget, '/api/admin/bitrix/register', 'Бот зарегистрирован.');
+});
+
+$('checkBitrix').addEventListener('click', event => {
+    browserLog('info', 'CHECK BOT button clicked');
+    saveThenAction(event.currentTarget, '/api/admin/bitrix/check', 'Бот найден.');
+});
+
+document.querySelectorAll('.test-model').forEach(button => {
+    button.addEventListener('click', () => {
+        browserLog('info', 'TEST MODEL button clicked', { target: button.dataset.target });
+        saveThenAction(button, `/api/admin/models/test?target=${button.dataset.target}`, 'API отвечает.');
     });
 });
 
+window.addEventListener('error', event => {
+    browserLog('error', 'Unhandled browser error', {
+        message: event.message,
+        source: event.filename,
+        line: event.lineno,
+        column: event.colno
+    });
+});
+
+window.addEventListener('unhandledrejection', event => {
+    browserLog('error', 'Unhandled Promise rejection', { reason: event.reason });
+});
+
+browserLog('info', 'Admin frontend initialized');
 load().catch(error => setMessage(error.message, 'error'));

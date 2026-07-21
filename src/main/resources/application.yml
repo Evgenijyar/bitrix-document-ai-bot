@@ -30,4 +30,6 @@ management:
 logging:
   level:
     root: INFO
-    ru.abs.bitrixdocbot: INFO
+    ru.abs.bitrixdocbot: ${APP_LOG_LEVEL:DEBUG}
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] [op:%X{operationId:-no-op}] %logger{48} - %msg%n%ex"

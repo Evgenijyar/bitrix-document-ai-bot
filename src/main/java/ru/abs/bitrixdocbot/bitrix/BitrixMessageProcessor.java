@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
-import tools.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,7 +17,9 @@ import ru.abs.bitrixdocbot.document.DocumentBundleBuilder;
 import ru.abs.bitrixdocbot.document.DocumentTextExtractor;
 import ru.abs.bitrixdocbot.document.ExtractedDocument;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
+import ru.abs.bitrixdocbot.logging.LogSanitizer;
 import ru.abs.bitrixdocbot.message.MessageChunker;
+import tools.jackson.databind.JsonNode;
 
 @Service
 public class BitrixMessageProcessor {
@@ -55,10 +56,11 @@ public class BitrixMessageProcessor {
     }
 
     public void process(JsonNode data) {
+        long started = System.nanoTime();
         BotConfiguration configuration = configurationService.getInternalSnapshot();
         String dialogId = eventParser.extractDialogId(data);
         if (dialogId.isBlank()) {
-            log.warn("Cannot determine dialogId for event: {}", data);
+            log.warn("MESSAGE PROCESSOR cannot determine dialogId event={}", LogSanitizer.sanitizeJson(data));
             return;
         }
 
@@ -66,11 +68,22 @@ public class BitrixMessageProcessor {
         List<BitrixAttachment> attachments = eventParser.extractAttachments(data);
         List<BitrixAttachment> supported = attachments.stream().filter(this::isSupported).toList();
 
+        log.info("MESSAGE PROCESSOR started dialogId={} userTextChars={} attachments={} supported={} files={}",
+            dialogId,
+            userText == null ? 0 : userText.length(),
+            attachments.size(),
+            supported.size(),
+            supported.stream().map(attachment -> attachment.fileName() + "#" + attachment.fileId())
+                .collect(Collectors.joining(", ")));
+
         if (supported.isEmpty()) {
+            log.info("MESSAGE PROCESSOR rejected dialogId={} reason=no-supported-files", dialogId);
             botService.sendMessage(configuration.getBitrix(), dialogId, configuration.getIrrelevantReply());
             return;
         }
         if (supported.size() > configuration.getMaxFileCount()) {
+            log.info("MESSAGE PROCESSOR rejected dialogId={} reason=too-many-files count={} limit={}",
+                dialogId, supported.size(), configuration.getMaxFileCount());
             botService.sendMessage(configuration.getBitrix(), dialogId,
                 "Слишком много файлов. Максимум: " + configuration.getMaxFileCount() + ".");
             return;
@@ -80,7 +93,10 @@ public class BitrixMessageProcessor {
             String fileSummary = supported.stream()
                 .map(BitrixAttachment::fileName)
                 .collect(Collectors.joining(", "));
+            log.info("MESSAGE PROCESSOR relevance check started dialogId={} files={}", dialogId, fileSummary);
             RelevanceResult relevance = relevanceService.check(configuration, userText, fileSummary);
+            log.info("MESSAGE PROCESSOR relevance check completed dialogId={} relevant={} reason={}",
+                dialogId, relevance.relevant(), LogSanitizer.shortValue(relevance.reason(), 300));
             if (!relevance.relevant()) {
                 botService.sendMessage(configuration.getBitrix(), dialogId, configuration.getIrrelevantReply());
                 return;
@@ -90,7 +106,10 @@ public class BitrixMessageProcessor {
 
             List<ExtractedDocument> documents = new ArrayList<>();
             for (BitrixAttachment attachment : supported) {
-                if (attachment.declaredSize() != null && attachment.declaredSize() > configuration.getMaxFileSizeBytes()) {
+                log.info("MESSAGE PROCESSOR file started dialogId={} fileId={} fileName={} declaredBytes={}",
+                    dialogId, attachment.fileId(), attachment.fileName(), attachment.declaredSize());
+                if (attachment.declaredSize() != null
+                    && attachment.declaredSize() > configuration.getMaxFileSizeBytes()) {
                     throw new IllegalArgumentException("Файл слишком большой: " + attachment.fileName());
                 }
                 byte[] content = botService.downloadFile(configuration.getBitrix(), attachment.fileId());
@@ -103,17 +122,42 @@ public class BitrixMessageProcessor {
                     throw new IllegalArgumentException("Не удалось извлечь текст из файла: " + attachment.fileName());
                 }
                 documents.add(document);
+                log.info("MESSAGE PROCESSOR file completed dialogId={} fileId={} fileName={} downloadedBytes={} "
+                        + "extractedChars={} truncated={}",
+                    dialogId,
+                    attachment.fileId(),
+                    attachment.fileName(),
+                    content.length,
+                    document.text().length(),
+                    document.truncated());
             }
 
             String documentBundle = bundleBuilder.build(documents, configuration.getMaxTotalExtractedChars());
+            log.info("MESSAGE PROCESSOR analysis started dialogId={} documents={} bundleChars={}",
+                dialogId, documents.size(), documentBundle.length());
             String answer = analysisService.analyze(configuration, userText, documentBundle);
-            for (String chunk : messageChunker.split(answer, configuration.getOutgoingMessageChunkSize())) {
+            List<String> chunks = messageChunker.split(answer, configuration.getOutgoingMessageChunkSize());
+            log.info("MESSAGE PROCESSOR analysis completed dialogId={} answerChars={} outgoingChunks={}",
+                dialogId, answer.length(), chunks.size());
+            for (int index = 0; index < chunks.size(); index++) {
+                String chunk = chunks.get(index);
+                log.info("MESSAGE PROCESSOR sending result dialogId={} chunk={}/{} chars={}",
+                    dialogId, index + 1, chunks.size(), chunk.length());
                 botService.sendMessage(configuration.getBitrix(), dialogId, chunk);
             }
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.info("MESSAGE PROCESSOR completed dialogId={} durationMs={}", dialogId, durationMs);
         } catch (Exception exception) {
-            log.error("Document analysis failed for dialog {}", dialogId, exception);
-            botService.sendMessage(configuration.getBitrix(), dialogId,
-                configuration.getErrorReply() + "\n\nТехническая причина: " + safeMessage(exception));
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.error("MESSAGE PROCESSOR failed dialogId={} durationMs={} message={}",
+                dialogId, durationMs, exception.getMessage(), exception);
+            try {
+                botService.sendMessage(configuration.getBitrix(), dialogId,
+                    configuration.getErrorReply() + "\n\nТехническая причина: " + safeMessage(exception));
+            } catch (Exception sendException) {
+                log.error("MESSAGE PROCESSOR could not send error reply dialogId={} message={}",
+                    dialogId, sendException.getMessage(), sendException);
+            }
         }
     }
 

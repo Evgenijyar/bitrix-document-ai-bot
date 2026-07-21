@@ -32,6 +32,7 @@ Lombok и Thymeleaf не используются.
 - Разбиение длинного ответа на несколько сообщений Bitrix24.
 - Админка по `/admin/`.
 - Dockerfile, Docker Compose и серверные скрипты.
+- Подробное безопасное логирование админки, Bitrix24 REST, poller, файлов и LLM без вывода API-ключей и botToken.
 
 ## Входящий webhook Bitrix24
 
@@ -114,6 +115,33 @@ docker logs -f --tail=300 bitrix-document-ai-bot
 ```
 
 Админка будет доступна на порту `APP_PORT`.
+
+
+## Диагностические логи
+
+По умолчанию для пакета проекта включён уровень `DEBUG` через:
+
+```dotenv
+APP_LOG_LEVEL=DEBUG
+```
+
+Просмотр на сервере:
+
+```bash
+docker logs -f --tail=300 bitrix-document-ai-bot
+```
+
+При нажатии кнопок админки в логе появляются последовательные метки:
+
+```text
+ADMIN HTTP
+ADMIN CONFIG
+ADMIN BITRIX REGISTER
+BITRIX BOT
+BITRIX API
+```
+
+Каждый запрос админки получает `operationId`. Тот же идентификатор выводится в консоль браузера, поэтому запрос можно сопоставить с конкретной цепочкой строк в `docker logs`. Webhook-токен, `botToken`, API-ключи, промпты, документы и тексты сообщений в логах маскируются или заменяются длиной текста.
 
 ## Ограничения MVP
 

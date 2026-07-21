@@ -1,17 +1,23 @@
 package ru.abs.bitrixdocbot.llm;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import tools.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import ru.abs.bitrixdocbot.domain.ModelSettings;
+import ru.abs.bitrixdocbot.logging.LogSanitizer;
+import tools.jackson.databind.JsonNode;
 
 @Component
 public class OpenAiLlmClient implements LlmClient {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiLlmClient.class);
 
     private final RestClient.Builder restClientBuilder;
 
@@ -37,21 +43,59 @@ public class OpenAiLlmClient implements LlmClient {
                 "store", false
             );
 
-        JsonNode response = restClientBuilder.build()
-            .post()
-            .uri(settings.getEndpoint())
-            .contentType(MediaType.APPLICATION_JSON)
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer " + settings.getApiKey())
-            .body(request)
-            .retrieve()
-            .body(JsonNode.class);
+        long started = System.nanoTime();
+        log.info("OPENAI API -> endpoint={} modelId={} apiMode={} request={}",
+            LogSanitizer.safeEndpoint(settings.getEndpoint()),
+            settings.getModelId(),
+            chatCompletions ? "chat-completions" : "responses",
+            LogSanitizer.sanitize(request));
 
-        String text = extractText(response);
-        if (text.isBlank()) {
-            throw new IllegalStateException("OpenAI-compatible endpoint returned an empty response");
+        try {
+            JsonNode response = restClientBuilder.build()
+                .post()
+                .uri(settings.getEndpoint())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer " + settings.getApiKey())
+                .body(request)
+                .retrieve()
+                .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
+                    String responseBody = new String(httpResponse.getBody().readAllBytes(), StandardCharsets.UTF_8);
+                    log.error("OPENAI API HTTP ERROR endpoint={} modelId={} status={} body={}",
+                        LogSanitizer.safeEndpoint(settings.getEndpoint()),
+                        settings.getModelId(),
+                        httpResponse.getStatusCode(),
+                        LogSanitizer.shortValue(responseBody, 2_000));
+                    throw new IllegalStateException("OpenAI-compatible endpoint returned HTTP "
+                        + httpResponse.getStatusCode() + ": " + LogSanitizer.shortValue(responseBody, 1_000));
+                })
+                .body(JsonNode.class);
+
+            log.debug("OPENAI API response endpoint={} modelId={} response={}",
+                LogSanitizer.safeEndpoint(settings.getEndpoint()),
+                settings.getModelId(),
+                LogSanitizer.sanitizeJson(response));
+            String text = extractText(response);
+            if (text.isBlank()) {
+                throw new IllegalStateException("OpenAI-compatible endpoint returned an empty response");
+            }
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.info("OPENAI API <- endpoint={} modelId={} outputChars={} durationMs={}",
+                LogSanitizer.safeEndpoint(settings.getEndpoint()),
+                settings.getModelId(),
+                text.length(),
+                durationMs);
+            return text;
+        } catch (Exception exception) {
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.error("OPENAI API !! endpoint={} modelId={} durationMs={} message={}",
+                LogSanitizer.safeEndpoint(settings.getEndpoint()),
+                settings.getModelId(),
+                durationMs,
+                exception.getMessage(),
+                exception);
+            throw exception;
         }
-        return text;
     }
 
     private String extractText(JsonNode root) {

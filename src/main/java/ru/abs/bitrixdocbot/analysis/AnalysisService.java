@@ -1,11 +1,15 @@
 package ru.abs.bitrixdocbot.analysis;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
 import ru.abs.bitrixdocbot.llm.LlmGateway;
 
 @Service
 public class AnalysisService {
+
+    private static final Logger log = LoggerFactory.getLogger(AnalysisService.class);
 
     private static final String SAFETY_PREFIX = """
         ВАЖНЫЕ НЕИЗМЕНЯЕМЫЕ ПРАВИЛА:
@@ -33,10 +37,16 @@ public class AnalysisService {
             ==================== КОНЕЦ КОМПЛЕКТА ДОКУМЕНТОВ ====================
             """.formatted(userText == null || userText.isBlank() ? "Не указан" : userText, documentsText);
 
-        return llmGateway.generate(
+        log.info("ANALYSIS started analysisPromptChars={} userTextChars={} documentBundleChars={}",
+            configuration.getAnalysisPrompt() == null ? 0 : configuration.getAnalysisPrompt().length(),
+            userText == null ? 0 : userText.length(),
+            documentsText == null ? 0 : documentsText.length());
+        String result = llmGateway.generate(
             configuration.getComplexModel(),
             SAFETY_PREFIX + configuration.getAnalysisPrompt(),
             userPrompt
         );
+        log.info("ANALYSIS completed outputChars={}", result.length());
+        return result;
     }
 }

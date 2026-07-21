@@ -7,14 +7,18 @@ import java.nio.file.StandardCopyOption;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 
-import tools.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import ru.abs.bitrixdocbot.config.ApplicationProperties;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class ConfigurationStore {
+
+    private static final Logger log = LoggerFactory.getLogger(ConfigurationStore.class);
 
     private final ObjectMapper objectMapper;
     private final Path configPath;
@@ -28,14 +32,23 @@ public class ConfigurationStore {
 
     @PostConstruct
     void initialize() throws IOException {
+        log.info("CONFIG STORE initialization started path={}", configPath.toAbsolutePath());
         Files.createDirectories(configPath.getParent());
         if (Files.exists(configPath)) {
             configuration = objectMapper.readValue(configPath.toFile(), BotConfiguration.class);
+            log.info("CONFIG STORE existing configuration loaded path={} bytes={}",
+                configPath.toAbsolutePath(), Files.size(configPath));
         } else {
             configuration = new BotConfiguration();
             persist(configuration);
+            log.info("CONFIG STORE default configuration created path={}", configPath.toAbsolutePath());
         }
         normalize(configuration);
+        log.info("CONFIG STORE initialization completed botId={} bitrixReady={} simpleConfigured={} complexConfigured={}",
+            configuration.getBitrix().getBotId(),
+            configuration.getBitrix().isReadyForPolling(),
+            configuration.getSimpleModel().isConfigured(),
+            configuration.getComplexModel().isConfigured());
     }
 
     public BotConfiguration getSnapshot() {
@@ -74,15 +87,21 @@ public class ConfigurationStore {
     }
 
     private void persist(BotConfiguration value) {
+        long started = System.nanoTime();
         try {
             Path tempPath = configPath.resolveSibling(configPath.getFileName() + ".tmp");
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), value);
             try {
                 Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException atomicMoveNotSupported) {
+                log.debug("CONFIG STORE atomic move unavailable; using regular replace path={}", configPath.toAbsolutePath());
                 Files.move(tempPath, configPath, StandardCopyOption.REPLACE_EXISTING);
             }
+            long durationMs = (System.nanoTime() - started) / 1_000_000;
+            log.debug("CONFIG STORE persisted path={} bytes={} durationMs={}",
+                configPath.toAbsolutePath(), Files.size(configPath), durationMs);
         } catch (IOException exception) {
+            log.error("CONFIG STORE persistence failed path={}", configPath.toAbsolutePath(), exception);
             throw new IllegalStateException("Cannot save configuration to " + configPath, exception);
         }
     }
