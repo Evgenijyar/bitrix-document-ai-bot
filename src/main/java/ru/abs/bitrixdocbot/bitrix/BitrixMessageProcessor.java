@@ -11,6 +11,7 @@ import ru.abs.bitrixdocbot.admin.ConfigurationService;
 import ru.abs.bitrixdocbot.analysis.AnalysisService;
 import ru.abs.bitrixdocbot.document.BitrixAttachment;
 import ru.abs.bitrixdocbot.document.DocumentBundleBuilder;
+import ru.abs.bitrixdocbot.document.DownloadedBitrixFile;
 import ru.abs.bitrixdocbot.document.DocumentTextExtractor;
 import ru.abs.bitrixdocbot.document.ExtractedDocument;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
@@ -91,37 +92,48 @@ public class BitrixMessageProcessor {
                     throw new IllegalArgumentException("Файл слишком большой: " + attachment.fileName());
                 }
 
-                byte[] content = botService.downloadFile(configuration.getBitrix(), attachment.fileId());
+                DownloadedBitrixFile downloaded = botService.downloadFile(
+                    configuration.getBitrix(), dialogId, attachment);
+                byte[] content = downloaded.content();
+                String resolvedFileName = downloaded.fileName();
+                Long resolvedDeclaredSize = downloaded.declaredSize();
+
+                if (resolvedDeclaredSize != null
+                    && resolvedDeclaredSize > configuration.getMaxFileSizeBytes()) {
+                    throw new IllegalArgumentException("Файл слишком большой: " + resolvedFileName);
+                }
                 if (content.length > configuration.getMaxFileSizeBytes()) {
-                    throw new IllegalArgumentException("Файл слишком большой: " + attachment.fileName());
+                    throw new IllegalArgumentException("Файл слишком большой: " + resolvedFileName);
                 }
 
                 ExtractedDocument document;
                 try {
                     document = textExtractor.extract(
-                        attachment.fileName(), content, configuration.getMaxExtractedCharsPerFile());
+                        resolvedFileName, content, configuration.getMaxExtractedCharsPerFile());
                 } catch (IllegalStateException extractionException) {
-                    log.warn("MESSAGE PROCESSOR file skipped dialogId={} fileId={} fileName={} reason=not-extractable "
-                            + "message={}",
+                    log.warn("MESSAGE PROCESSOR file skipped dialogId={} fileId={} fileName={} source={} "
+                            + "reason=not-extractable message={}",
                         dialogId,
                         attachment.fileId(),
-                        attachment.fileName(),
+                        resolvedFileName,
+                        downloaded.source(),
                         LogSanitizer.shortValue(extractionException.getMessage(), 300));
                     continue;
                 }
 
                 if (document.text().isBlank()) {
-                    log.info("MESSAGE PROCESSOR file skipped dialogId={} fileId={} fileName={} reason=no-text",
-                        dialogId, attachment.fileId(), attachment.fileName());
+                    log.info("MESSAGE PROCESSOR file skipped dialogId={} fileId={} fileName={} source={} reason=no-text",
+                        dialogId, attachment.fileId(), resolvedFileName, downloaded.source());
                     continue;
                 }
 
                 documents.add(document);
-                log.info("MESSAGE PROCESSOR file accepted dialogId={} fileId={} fileName={} downloadedBytes={} "
-                        + "extractedChars={} truncated={}",
+                log.info("MESSAGE PROCESSOR file accepted dialogId={} fileId={} fileName={} source={} "
+                        + "downloadedBytes={} extractedChars={} truncated={}",
                     dialogId,
                     attachment.fileId(),
-                    attachment.fileName(),
+                    resolvedFileName,
+                    downloaded.source(),
                     content.length,
                     document.text().length(),
                     document.truncated());

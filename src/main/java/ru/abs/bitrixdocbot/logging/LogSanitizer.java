@@ -55,10 +55,32 @@ public final class LogSanitizer {
         }
         try {
             URI uri = URI.create(value.trim());
-            return buildOrigin(uri) + (uri.getPath() == null ? "" : uri.getPath());
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            return buildOrigin(uri) + maskWebhookTokenInsidePath(path);
         } catch (Exception ignored) {
             return shortValue(value, DEFAULT_TEXT_LIMIT);
         }
+    }
+
+    private static String maskWebhookTokenInsidePath(String path) {
+        if (path == null || path.isBlank()) {
+            return "";
+        }
+        String[] raw = path.split("/");
+        List<String> parts = new ArrayList<>();
+        for (String part : raw) {
+            if (!part.isBlank()) {
+                parts.add(part);
+            }
+        }
+        if (parts.size() >= 3
+            && "rest".equalsIgnoreCase(parts.get(0))
+            && parts.get(1).matches("\\d+")
+            && !"download.json".equalsIgnoreCase(parts.get(2))) {
+            parts.set(2, "***");
+            return "/" + String.join("/", parts) + (path.endsWith("/") ? "/" : "");
+        }
+        return path;
     }
 
     public static String shortValue(String value, int maxLength) {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.8
+
+- `imbot.v2.File.download` теперь вызывается с `dialogId`, как в официальном quick-start Bitrix24.
+- Некорректные ссылки вида `/rest/{user}/{webhook}/download/` распознаются до HTTP-вызова.
+- Добавлен официальный fallback через `disk.file.get` и поле `DOWNLOAD_URL`.
+- Реальное имя и размер файла из Диска передаются в Apache Tika и используются в логах.
+- Добавлено следование HTTP redirect, проверка пустых файлов и REST-ошибок вместо бинарного содержимого.
+- Секрет webhook больше не выводится в логах внутри download URL.
+- Добавлены unit-тесты обоих маршрутов скачивания и понятной ошибки отсутствующего scope `disk`.
+- Версия приложения обновлена до `0.1.8-SNAPSHOT`.
+
 ## 0.1.7
 
 - Исправлена ошибка компиляции `BitrixEventParser`: `JsonNode.values()` в Jackson 3 возвращает `Collection`, а не `Stream`.

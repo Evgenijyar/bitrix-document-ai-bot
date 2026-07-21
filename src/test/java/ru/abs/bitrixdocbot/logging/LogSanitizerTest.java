@@ -19,6 +19,16 @@ class LogSanitizerTest {
     }
 
     @Test
+    void masksWebhookTokenInsideBrokenDownloadPath() {
+        String sanitized = LogSanitizer.safeEndpoint(
+            "https://portal.bitrix24.ru/rest/216/webhook-secret/download/"
+        );
+
+        assertEquals("https://portal.bitrix24.ru/rest/216/***/download/", sanitized);
+        assertFalse(sanitized.contains("webhook-secret"));
+    }
+
+    @Test
     void removesDownloadQueryToken() {
         Object sanitized = LogSanitizer.sanitize(Map.of(
             "downloadUrl", "https://portal.bitrix24.ru/rest/download.json?token=secret"

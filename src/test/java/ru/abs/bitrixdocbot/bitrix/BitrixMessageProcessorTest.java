@@ -17,6 +17,7 @@ import ru.abs.bitrixdocbot.admin.ConfigurationService;
 import ru.abs.bitrixdocbot.analysis.AnalysisService;
 import ru.abs.bitrixdocbot.document.BitrixAttachment;
 import ru.abs.bitrixdocbot.document.DocumentBundleBuilder;
+import ru.abs.bitrixdocbot.document.DownloadedBitrixFile;
 import ru.abs.bitrixdocbot.document.DocumentTextExtractor;
 import ru.abs.bitrixdocbot.document.ExtractedDocument;
 import ru.abs.bitrixdocbot.domain.BotConfiguration;
@@ -84,7 +85,8 @@ class BitrixMessageProcessorTest {
         ExtractedDocument extracted = new ExtractedDocument("document.odt", "document text", false);
 
         when(eventParser.extractAttachments(event)).thenReturn(List.of(attachment));
-        when(botService.downloadFile(configuration.getBitrix(), 77L)).thenReturn(content);
+        when(botService.downloadFile(configuration.getBitrix(), "chat42", attachment))
+            .thenReturn(new DownloadedBitrixFile(77L, "document.odt", 12L, content, "disk.file.get"));
         when(textExtractor.extract("document.odt", content, configuration.getMaxExtractedCharsPerFile()))
             .thenReturn(extracted);
         when(bundleBuilder.build(List.of(extracted), configuration.getMaxTotalExtractedChars()))
@@ -107,7 +109,8 @@ class BitrixMessageProcessorTest {
 
         when(eventParser.extractMessageText(event)).thenReturn("Я - арендодатель");
         when(eventParser.extractAttachments(event)).thenReturn(List.of(attachment));
-        when(botService.downloadFile(configuration.getBitrix(), 99L)).thenReturn(content);
+        when(botService.downloadFile(configuration.getBitrix(), "chat42", attachment))
+            .thenReturn(new DownloadedBitrixFile(99L, "contract.pdf", 12L, content, "imbot.v2.File.download"));
         when(textExtractor.extract("contract.pdf", content, configuration.getMaxExtractedCharsPerFile()))
             .thenReturn(extracted);
         when(bundleBuilder.build(List.of(extracted), configuration.getMaxTotalExtractedChars()))
@@ -127,7 +130,8 @@ class BitrixMessageProcessorTest {
         byte[] content = new byte[]{1, 2, 3};
 
         when(eventParser.extractAttachments(event)).thenReturn(List.of(attachment));
-        when(botService.downloadFile(configuration.getBitrix(), 88L)).thenReturn(content);
+        when(botService.downloadFile(configuration.getBitrix(), "chat42", attachment))
+            .thenReturn(new DownloadedBitrixFile(88L, "picture.png", 10L, content, "disk.file.get"));
         when(textExtractor.extract(eq("picture.png"), eq(content), anyInt()))
             .thenReturn(new ExtractedDocument("picture.png", "", false));
 
