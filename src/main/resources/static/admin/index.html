@@ -62,7 +62,8 @@
                 </select>
             </label>
             <label>Endpoint
-                <input id="simpleEndpoint" type="url" placeholder="Полный URL API">
+                <input id="simpleEndpoint" type="url" placeholder="https://host/v1 или полный URL метода">
+                <small>OpenAI-compatible: базовый адрес <code>.../v1</code> автоматически дополняется до <code>.../v1/chat/completions</code>.</small>
             </label>
             <label>Model ID
                 <input id="simpleModelId" type="text" placeholder="ID модели">
@@ -88,7 +89,8 @@
                 </select>
             </label>
             <label>Endpoint
-                <input id="complexEndpoint" type="url" placeholder="Полный URL API">
+                <input id="complexEndpoint" type="url" placeholder="https://host/v1 или полный URL метода">
+                <small>Для Tokenator можно указать <code>https://api.tokenator.top/v1</code> или полный <code>.../v1/chat/completions</code>.</small>
             </label>
             <label>Model ID
                 <input id="complexModelId" type="text" placeholder="ID модели">

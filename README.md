@@ -83,7 +83,34 @@ mvn spring-boot:run
 
 ## Настройка endpoint моделей
 
+### OpenAI-compatible Chat Completions
+
+Можно указать как полный endpoint, так и базовый адрес версии API:
+
+```text
+Provider: OPENAI
+Endpoint: https://api.tokenator.top/v1
+Model ID: gpt-5.5
+API key: ваш ключ агрегатора
+```
+
+Адрес, заканчивающийся на `/v1`, автоматически преобразуется в:
+
+```text
+https://api.tokenator.top/v1/chat/completions
+```
+
+Для Chat Completions отправляется стандартный массив `messages` и параметр:
+
+```json
+{"reasoning":{"enabled":true}}
+```
+
+Если конкретный OpenAI-совместимый провайдер явно отклоняет поле `reasoning`, приложение один раз повторяет запрос без него.
+
 ### OpenAI Responses API
+
+Responses API используется только при явном полном endpoint:
 
 ```text
 Provider: OPENAI
@@ -91,8 +118,6 @@ Endpoint: https://api.openai.com/v1/responses
 Model ID: укажите нужный ID модели
 API key: ваш ключ OpenAI
 ```
-
-Также поддерживается endpoint, содержащий `/chat/completions`.
 
 ### Google Gemini generateContent
 
