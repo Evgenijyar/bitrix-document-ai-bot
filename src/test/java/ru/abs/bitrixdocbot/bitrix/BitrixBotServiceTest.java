@@ -38,72 +38,53 @@ class BitrixBotServiceTest {
     }
 
     @Test
-    void downloadsCurrentDiskVersionThroughSignedMachineUrl() throws Exception {
+    @SuppressWarnings("unchecked")
+    void downloadsChatFileThroughAuthorizedUserMethod() throws Exception {
         byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
         JsonNode metadata = mapper.readTree("""
             {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2}}
             """);
-        JsonNode versions = mapper.readTree("""
-            {"result":[{"ID":7001,"OBJECT_ID":239596,"NAME":"contract.pdf","SIZE":9,
-              "GLOBAL_CONTENT_VERSION":2,
-              "DOWNLOAD_URL":"https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"}]}
+        JsonNode downloadResponse = mapper.readTree("""
+            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc"}}
             """);
 
         when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
             .thenReturn(metadata);
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.getVersions", Map.of("id", 239596L, "start", 0)))
-            .thenReturn(versions);
-        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
+            .thenReturn(downloadResponse);
+        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc"))
             .thenReturn(bytes);
 
         DownloadedBitrixFile result = service.downloadFile(
             settings, "216", new BitrixAttachment(239596L, "bitrix-file-239596", null));
 
-        assertThat(result.source()).isEqualTo("disk.file.getVersions");
+        ArgumentCaptor<Object> requestCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(restClient).call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), requestCaptor.capture());
+        Map<String, Object> request = (Map<String, Object>) requestCaptor.getValue();
+        assertThat(request).containsExactlyInAnyOrderEntriesOf(Map.of(
+            "dialogId", "216",
+            "fileId", 239596L
+        ));
+        assertThat(result.source()).isEqualTo("im.v2.File.download");
         assertThat(result.fileName()).isEqualTo("contract.pdf");
         assertThat(result.declaredSize()).isEqualTo(9L);
         assertThat(result.content()).isEqualTo(bytes);
     }
 
     @Test
-    void refreshesSignedUrlThroughDiskVersionGetWhenListUrlIsBroken() throws Exception {
+    @SuppressWarnings("unchecked")
+    void fallsBackToBotMethodWhenImScopeIsUnavailable() throws Exception {
         byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
         JsonNode metadata = mapper.readTree("""
-            {"result":{"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2}}
+            {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9}}
             """);
-        JsonNode versions = mapper.readTree("""
-            {"result":[{"ID":7001,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2,
-              "DOWNLOAD_URL":"https://portal.bitrix24.ru/rest/216/webhook-secret/download/"}]}
-            """);
-        JsonNode version = mapper.readTree("""
-            {"result":{"ID":7001,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2,
-              "DOWNLOAD_URL":"https://portal.bitrix24.ru/rest/download.json?token=disk%7Cfresh"}}
+        JsonNode botResponse = mapper.readTree("""
+            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=imbot%7Cabc"}}
             """);
 
         when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
             .thenReturn(metadata);
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.getVersions", Map.of("id", 239596L, "start", 0)))
-            .thenReturn(versions);
-        when(restClient.call(settings.getWebhookUrl(), "disk.version.get", Map.of("id", 7001L)))
-            .thenReturn(version);
-        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?token=disk%7Cfresh"))
-            .thenReturn(bytes);
-
-        DownloadedBitrixFile result = service.downloadFile(
-            settings, "216", new BitrixAttachment(239596L, "contract.pdf", 9L));
-
-        assertThat(result.content()).isEqualTo(bytes);
-        verify(restClient).call(settings.getWebhookUrl(), "disk.version.get", Map.of("id", 7001L));
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void fallsBackToCanonicalBotDownloadUrlWhenDiskRouteIsUnavailable() throws Exception {
-        byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
-        JsonNode botResponse = mapper.readTree("""
-            {"result":{"downloadUrl":"https://portal.bitrix24.ru/rest/download.json?token=imbot%7Cabc"}}
-            """);
-        when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
             .thenThrow(new BitrixApiException("insufficient_scope"));
         when(restClient.call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), any()))
             .thenReturn(botResponse);
@@ -116,8 +97,40 @@ class BitrixBotServiceTest {
         ArgumentCaptor<Object> requestCaptor = ArgumentCaptor.forClass(Object.class);
         verify(restClient).call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), requestCaptor.capture());
         Map<String, Object> request = (Map<String, Object>) requestCaptor.getValue();
-        assertThat(request).containsEntry("dialogId", "216").containsEntry("fileId", 239596L);
+        assertThat(request).containsEntry("botId", 1084L)
+            .containsEntry("botToken", "bot-secret")
+            .containsEntry("fileId", 239596L);
         assertThat(result.source()).isEqualTo("imbot.v2.File.download");
+    }
+
+    @Test
+    void fallsBackToCurrentDiskVersionWhenChatMethodsAreUnavailable() throws Exception {
+        byte[] bytes = "%PDF-test".getBytes(StandardCharsets.US_ASCII);
+        JsonNode metadata = mapper.readTree("""
+            {"result":{"ID":239596,"NAME":"contract.pdf","SIZE":9,"GLOBAL_CONTENT_VERSION":2}}
+            """);
+        JsonNode versions = mapper.readTree("""
+            {"result":[{"ID":7001,"OBJECT_ID":239596,"NAME":"contract.pdf","SIZE":9,
+              "GLOBAL_CONTENT_VERSION":2,
+              "DOWNLOAD_URL":"https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"}]}
+            """);
+
+        when(restClient.call(settings.getWebhookUrl(), "disk.file.get", Map.of("id", 239596L)))
+            .thenReturn(metadata);
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("im.v2.File.download"), any()))
+            .thenThrow(new BitrixApiException("temporary error"));
+        when(restClient.call(eq(settings.getWebhookUrl()), eq("imbot.v2.File.download"), any()))
+            .thenThrow(new BitrixApiException("temporary error"));
+        when(restClient.call(settings.getWebhookUrl(), "disk.file.getVersions", Map.of("id", 239596L, "start", 0)))
+            .thenReturn(versions);
+        when(restClient.download("https://portal.bitrix24.ru/rest/download.json?auth=x&token=disk%7Cabc"))
+            .thenReturn(bytes);
+
+        DownloadedBitrixFile result = service.downloadFile(
+            settings, "216", new BitrixAttachment(239596L, "contract.pdf", 9L));
+
+        assertThat(result.source()).isEqualTo("disk.file.getVersions");
+        assertThat(result.content()).isEqualTo(bytes);
     }
 
     @Test
@@ -128,7 +141,7 @@ class BitrixBotServiceTest {
         )).isFalse();
 
         assertThat(service.isUsableDownloadUrl(
-            "https://portal.bitrix24.ru/rest/download.json?token=imbot%7Cabc",
+            "https://portal.bitrix24.ru/rest/download.json?token=im%7Cabc",
             settings.getWebhookUrl()
         )).isTrue();
     }

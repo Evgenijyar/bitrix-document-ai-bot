@@ -116,7 +116,7 @@ public class BitrixRestClient {
             byte[] data = restClientBuilder.build()
                 .get()
                 .uri(URI.create(url))
-                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.11")
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.12")
                 .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL)
                 .retrieve()
                 .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
@@ -186,7 +186,7 @@ public class BitrixRestClient {
             RestClient.RequestBodySpec request = restClientBuilder.build()
                 .post()
                 .uri(URI.create(url))
-                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.11")
+                .header(HttpHeaders.USER_AGENT, "bitrix-document-ai-bot/0.1.12")
                 .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.ALL);
 
             byte[] data = requestCustomizer.apply(request)

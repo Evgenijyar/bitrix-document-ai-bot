@@ -24,3 +24,11 @@
 - The backend now obtains metadata with `disk.file.get`, resolves the current version with `disk.file.getVersions`, optionally refreshes it with `disk.version.get`, and downloads the exact signed `/rest/download.json` URL.
 - Signed download URLs are passed to Spring as `URI` objects so `%`-encoded authorization tokens are not re-encoded.
 - Downloaded byte length and PDF/DOC/DOCX signatures are checked before Apache Tika receives the file.
+
+## 0.1.12
+
+- Основным способом скачивания вложений стал официальный `im.v2.File.download`.
+- Для личного чата передаются фактические `dialogId` и `fileId` из события.
+- `imbot.v2.File.download` и Disk API оставлены только резервными маршрутами.
+- Вебхуку теперь требуются права `imbot`, `im` и `disk`.
+- Метаданные файла (`NAME`, `SIZE`) читаются отдельно через `disk.file.get` и используются для проверки бинарного ответа.
